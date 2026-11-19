@@ -3,7 +3,7 @@ module glyph
 go 1.26.11
 
 require (
-	filippo.io/edwards25519 v1.1.0
+	filippo.io/edwards25519 v1.1.1
 	glyph-mailbox v0.0.0
 	golang.org/x/crypto v0.59.0
 )
