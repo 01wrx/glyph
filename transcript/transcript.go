@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -89,6 +90,7 @@ type conv struct {
 	PeerNext    uint64
 	PendingNext string
 	Follow      bool
+	Reach       string
 	Log         []Entry
 	Held        map[uint64]Entry
 }
@@ -171,6 +173,47 @@ func (s *Store) Add(peerID, name string) error {
 		return err
 	}
 	return nil
+}
+
+// SetReach stores the host:port the local user uses to dial this glyph ID.
+// An empty address clears it. The host is not an identity.
+func (s *Store) SetReach(peerID, addr string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	peer, err := canonical(peerID)
+	if err != nil {
+		return err
+	}
+	c, ok := s.conv[peer]
+	if !ok {
+		return ErrNotFound
+	}
+	addr = strings.TrimSpace(addr)
+	if strings.ContainsAny(addr, " \t\r\n") || len(addr) > 253 {
+		return ErrInvalid
+	}
+	snap := s.snapshot()
+	c.Reach = addr
+	if err := s.persist(); err != nil {
+		s.conv = snap
+		return err
+	}
+	return nil
+}
+
+// Reach is the dial address stored for peerID.
+func (s *Store) Reach(peerID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	peer, err := canonical(peerID)
+	if err != nil {
+		return "", err
+	}
+	c, ok := s.conv[peer]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return c.Reach, nil
 }
 
 // SetName changes the local label. The conversation stays under the glyph ID.
@@ -885,6 +928,7 @@ type diskConv struct {
 	PeerNext    uint64      `json:"peer_next"`
 	PendingNext string      `json:"pending_next,omitempty"`
 	Follow      bool        `json:"follow,omitempty"`
+	Reach       string      `json:"reach,omitempty"`
 	Log         []diskEntry `json:"log"`
 	Held        []diskEntry `json:"held,omitempty"`
 }
@@ -922,6 +966,7 @@ func (s *Store) toDisk() diskFile {
 			PeerNext:    c.PeerNext,
 			PendingNext: c.PendingNext,
 			Follow:      c.Follow,
+			Reach:       c.Reach,
 			Log:         make([]diskEntry, len(c.Log)),
 		}
 		for i, e := range c.Log {
@@ -991,10 +1036,15 @@ func (s *Store) parseDisk(raw []byte) (map[string]*conv, bool, error) {
 		if dc.Follow && dc.PendingNext == "" {
 			return nil, false, ErrInvalid
 		}
+		reach := dc.Reach
+		if strings.ContainsAny(reach, " \t\r\n") || len(reach) > 253 {
+			reach = ""
+			stripped = true
+		}
 		c := &conv{
 			Peer: peer, Name: dc.Name, Keep: keep, For: dc.ForSec,
 			SelfNext: dc.SelfNext, PeerNext: dc.PeerNext,
-			PendingNext: dc.PendingNext, Follow: dc.Follow, Held: map[uint64]Entry{},
+			PendingNext: dc.PendingNext, Follow: dc.Follow, Reach: reach, Held: map[uint64]Entry{},
 		}
 		for _, de := range dc.Log {
 			e, err := de.entry()
