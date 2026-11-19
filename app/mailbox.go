@@ -209,6 +209,39 @@ func (a *App) candidateAddrs() []string {
 	return out
 }
 
+// Join connects to a mailbox someone else is already running.
+// addr is the host:port they gave you. key is that mailbox's public key.
+// The owner still has to add this glyph ID before the connection is accepted.
+func (a *App) Join(addr, key string) bool {
+	addr = strings.TrimSpace(addr)
+	if err := validateMailbox(addr); err != nil {
+		return false
+	}
+	pin, err := parsePin(key)
+	if err != nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.client != nil {
+		a.client.Close()
+		a.client = nil
+	}
+	oldAddr, oldKey := a.prefs.Mailbox, a.prefs.MailboxKey
+	a.prefs.Mailbox = addr
+	a.prefs.MailboxKey = hex.EncodeToString(pin)
+	if err := a.savePrefs(); err != nil {
+		a.prefs.Mailbox, a.prefs.MailboxKey = oldAddr, oldKey
+		return false
+	}
+	if a.pins == nil {
+		a.pins = map[string]ed25519.PublicKey{}
+	}
+	a.pins[addr] = append(ed25519.PublicKey(nil), pin...)
+	a.fail = nil
+	return a.onlineLocked()
+}
+
 func (a *App) bindTarget() string {
 	if a.bindAddr != "" {
 		return a.bindAddr

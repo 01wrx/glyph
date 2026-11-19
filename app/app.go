@@ -161,7 +161,7 @@ func (a *App) Send(peer, text string) bool {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.client == nil {
+	if a.client == nil && !a.onlineLocked() {
 		return false
 	}
 	if _, err := a.store.Conversation(id); err != nil {
@@ -344,18 +344,23 @@ func (a *App) snapshotLocked() stateJSON {
 		a.open = ""
 	}
 	mail := "none"
+	box, boxKey := "", ""
 	if a.client != nil {
 		mail = "online"
+		box = a.prefs.Mailbox
+		boxKey = a.prefs.MailboxKey
 	}
 	return stateJSON{
-		Name:       a.prefs.Name,
-		ID:         a.store.Self(),
-		Theme:      a.prefs.Theme,
-		AutoUpdate: a.prefs.AutoUpdate,
-		Network:    a.network,
-		Mailbox:    mail,
-		Open:       open,
-		Chats:      chats,
+		Name:        a.prefs.Name,
+		ID:          a.store.Self(),
+		Theme:       a.prefs.Theme,
+		AutoUpdate:  a.prefs.AutoUpdate,
+		Network:     a.network,
+		Mailbox:     mail,
+		MailboxAddr: box,
+		MailboxKey:  boxKey,
+		Open:        open,
+		Chats:       chats,
 	}
 }
 

@@ -136,6 +136,8 @@
     #glyph .setup:hover, #glyph .setup:focus-visible { color: var(--accent); border-color: var(--accent); }
     #glyph .mail-setup { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 4px; }
     #glyph .list:not(:has(.mail[data-mailbox="none"])) .mail-setup { display: none; }
+    #glyph .join-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+    #glyph .share-line { user-select: text; cursor: text; }
     #glyph .settings input.name-field {
       width: 8ch; min-width: 4ch; max-width: 12rem; padding: 0; margin: 0;
       border: 0; border-radius: 0; background: transparent; color: var(--ink);
@@ -207,7 +209,8 @@
     #glyph .btext { font-size: 15px; line-height: 1.4; overflow-wrap: break-word; white-space: pre-wrap; }
     #glyph .bmeta { text-align: right; color: var(--meta); font-variant-numeric: tabular-nums; }
     #glyph .empty { text-align: center; padding: 24px 8px; }
-    #glyph .dock { display: flex; align-items: center; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+    #glyph .dock { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+    #glyph .dock [data-send-hint] { flex: 1 0 100%; margin: 0; }
     #glyph .dock [data-letter] {
       flex: 1 1 auto; width: auto; height: 40px; margin: 0; padding: 0 14px;
       line-height: 40px; border-radius: 20px;
@@ -292,6 +295,17 @@
           <div class="mail-setup">
             <p class="set-k">mailbox</p>
             <button type="button" class="setup" data-setup>setup</button>
+            <div class="join-fields">
+              <input class="gid-input" data-join-addr autocomplete="off" spellcheck="false" aria-label="Mailbox address" placeholder="192.168.1.20:7420">
+              <input class="gid-input" data-join-key autocomplete="off" spellcheck="false" aria-label="Mailbox key" placeholder="mailbox key">
+              <button type="button" class="setup" data-join>join</button>
+            </div>
+          </div>
+          <div class="mail-share" data-share hidden>
+            <p class="set-k">mailbox address</p>
+            <p class="id-mono share-line" data-box-addr></p>
+            <p class="set-k">mailbox key</p>
+            <p class="id-mono share-line" data-box-key></p>
           </div>
           <p class="set-k">updates</p>
           <div class="update-row">
@@ -325,6 +339,7 @@
         <div class="dock" data-composer>
           <input data-letter aria-label="Letter" autocomplete="off">
           <button type="button" class="send" data-send>Send</button>
+          <p class="hint" data-send-hint hidden>mailbox is not connected</p>
         </div>
       </section>
       <div class="tpm-pop" data-tpm-pop hidden role="dialog" aria-label="TPM">
@@ -498,6 +513,15 @@
         if (shown) shown.textContent = idText;
         var net = shell.querySelector("[data-net]");
         if (net) net.textContent = state.network || "network unavailable";
+        var share = shell.querySelector("[data-share]");
+        if (share) {
+          if (state.mailbox === "online" && state.mailboxAddr) share.removeAttribute("hidden");
+          else share.setAttribute("hidden", "");
+        }
+        var boxAddr = shell.querySelector("[data-box-addr]");
+        var boxKey = shell.querySelector("[data-box-key]");
+        if (boxAddr) boxAddr.textContent = state.mailboxAddr || "";
+        if (boxKey) boxKey.textContent = state.mailboxKey || "";
         var themeSel = shell.querySelector("[data-theme]");
         if (themeSel && document.activeElement !== themeSel) themeSel.value = theme;
         var update = shell.querySelector("[data-update]");
@@ -539,8 +563,17 @@
         var text = area.value;
         if (!text.replace(/^\s+|\s+$/g, "")) return;
         post("/api/send", {id: id, text: text}).then(function (res) {
-          if (!res) return;
-          if (res.ok) area.value = "";
+          var hint = shell.querySelector("[data-send-hint]");
+          if (!res || !res.ok) {
+            if (hint) {
+              hint.textContent = res && res.state && res.state.mailbox === "online" ? "not sent" : "mailbox is not connected";
+              hint.removeAttribute("hidden");
+            }
+            if (res && res.state) render(res.state);
+            return;
+          }
+          if (hint) hint.setAttribute("hidden", "");
+          area.value = "";
           if (res.state) render(res.state);
         }, function () {});
       }
@@ -669,6 +702,18 @@
           if (busy) return;
           busy = true;
           post("/api/setup", {}).then(function (res) {
+            busy = false;
+            if (res && res.state) render(res.state);
+          }, function () { busy = false; });
+          return;
+        }
+        if (btn.hasAttribute("data-join")) {
+          if (busy) return;
+          var addrEl = shell.querySelector("[data-join-addr]");
+          var keyEl = shell.querySelector("[data-join-key]");
+          if (!addrEl || !keyEl) return;
+          busy = true;
+          post("/api/join", {addr: addrEl.value, key: keyEl.value}).then(function (res) {
             busy = false;
             if (res && res.state) render(res.state);
           }, function () { busy = false; });

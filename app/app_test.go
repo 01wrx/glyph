@@ -149,6 +149,45 @@ func TestExchangeAndQuietFailures(t *testing.T) {
 	}
 }
 
+func TestJoinSharedMailbox(t *testing.T) {
+	owner := openTestApp(t)
+	friend := openTestApp(t)
+	addr := freeAddr(t)
+	owner.candidates = []string{addr}
+	owner.bindAddr = addr
+	owner.host = inprocHost(t)
+	if !owner.Setup() {
+		t.Fatal("owner setup")
+	}
+	shared := owner.pullState()
+	if shared.MailboxAddr == "" || shared.MailboxKey == "" {
+		t.Fatal("owner did not show the mailbox address and key")
+	}
+	if !owner.OpenChat(friend.id.ID()) {
+		t.Fatal("introduce")
+	}
+	friend.candidates = []string{shared.MailboxAddr}
+	if !friend.Join(shared.MailboxAddr, shared.MailboxKey) {
+		t.Fatal("friend join")
+	}
+	if !friend.OpenChat(owner.id.ID()) {
+		t.Fatal("friend chat")
+	}
+	if !owner.Send(friend.id.ID(), "through-shared-box") {
+		t.Fatal("send")
+	}
+	friend.mu.Lock()
+	friend.touchLocked()
+	friend.mu.Unlock()
+	got := friend.pullState()
+	if len(got.Chats) != 1 || len(got.Chats[0].Messages) != 1 || got.Chats[0].Messages[0].Text != "through-shared-box" {
+		t.Fatalf("friend view %#v", got.Chats)
+	}
+	if friend.Join("8.8.8.8:7420", shared.MailboxKey) {
+		t.Fatal("public mailbox was joined")
+	}
+}
+
 func TestStaleMailboxStaysUnset(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

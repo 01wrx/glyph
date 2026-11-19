@@ -16,8 +16,10 @@ type stateJSON struct {
 	ID         string     `json:"id"`
 	Theme      string     `json:"theme"`
 	AutoUpdate bool       `json:"autoUpdate"`
-	Network    string     `json:"network"`
-	Mailbox    string     `json:"mailbox"`
+	Network     string     `json:"network"`
+	Mailbox     string     `json:"mailbox"`
+	MailboxAddr string     `json:"mailboxAddr,omitempty"`
+	MailboxKey  string     `json:"mailboxKey,omitempty"`
 	Open       string     `json:"open"`
 	Chats      []chatJSON `json:"chats"`
 }
@@ -81,6 +83,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/theme", a.serveTheme)
 	mux.HandleFunc("POST /api/update", a.serveUpdate)
 	mux.HandleFunc("POST /api/setup", a.serveSetup)
+	mux.HandleFunc("POST /api/join", a.serveJoin)
 	mux.HandleFunc("POST /api/record", a.serveRecord)
 	mux.HandleFunc("POST /api/accept", a.serveAccept)
 	mux.HandleFunc("POST /api/remove", a.serveRemove)
@@ -147,6 +150,14 @@ func (a *App) serveUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) serveSetup(w http.ResponseWriter, r *http.Request) {
 	a.serveBool(w, r, &struct{}{}, func() bool { return a.Setup() })
+}
+
+func (a *App) serveJoin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Addr string `json:"addr"`
+		Key  string `json:"key"`
+	}
+	a.serveBool(w, r, &body, func() bool { return a.Join(body.Addr, body.Key) })
 }
 
 func (a *App) serveRemove(w http.ResponseWriter, r *http.Request) {

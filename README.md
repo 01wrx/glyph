@@ -47,7 +47,7 @@ A letter is signed by the sender and sealed to the recipient's glyph ID. The mai
 
 The mailbox is [glyph-mailbox](https://github.com/01wrx/glyph-mailbox). It listens on the LAN only. It accepts the owner, and friends the owner has introduced by full glyph ID.
 
-The owner's app reads the mailbox public key from the mailbox directory. A friend on that same LAN uses the same box for both directions, and is given the address together with that public key (`GLYPH_MAILBOX` and `GLYPH_MAILBOX_KEY`). A friend who is not on that LAN cannot reach the box.
+The owner's app reads the mailbox public key from the mailbox directory. After setup, the window shows that address and key. The other person joins with those instead of starting a second mailbox. A friend who is not on that LAN cannot reach the box. `GLYPH_MAILBOX` and `GLYPH_MAILBOX_KEY` choose the same box from outside the window.
 
 Either person can close glyph. Letters wait on the mailbox until an app on that LAN picks them up.
 
