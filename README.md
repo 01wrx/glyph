@@ -1,63 +1,58 @@
 # glyph
 
-People talk by glyph ID. The ID is a key you share by hand. Nobody else can find you.
+glyph is a window for two people who already have each other's glyph ID. The ID is the public half of a key made on that machine. It is not registered anywhere. A short prefix of it is not an address.
 
 A mailbox on the owner's LAN holds sealed letters while an app is closed. The mailbox never reads them.
 
+![glyph](docs/app.png)
+
+## Build
+
+Go 1.26. Check out [glyph-mailbox](https://github.com/01wrx/glyph-mailbox) in the directory next to this one. The module file points at that sibling.
+
+```powershell
+go build -o glyph.exe ./cmd/glyph
+.\glyph.exe
+```
+
+The key, transcripts, and preferences live under `%AppData%\glyph`. `GLYPH_HOME` chooses another directory.
+
+## Window
+
+**you are** is the name on this machine. Clicking it copies the full glyph ID.
+
+**+** takes a glyph ID you were given. The whole ID is required. A letter is sealed to that ID and handed to the mailbox as ciphertext.
+
+The open chat shows letters in counter order, one sequence per sender. The time on a letter is the sender's clock, shown for reading. The app holds a letter until the next counter arrives.
+
+**remove** drops that friend from the owner's mailbox. The transcript on this machine stays. **keep** is how long this machine retains the letters: until you change it, 1 day, 7 days, 30 days, or off.
+
+Settings holds the display name, the full glyph ID, this machine's private LAN address, the theme, and mailbox setup. Setup starts the mailbox for this glyph ID when nothing on this machine is already speaking the mailbox protocol.
+
 ## Identity
 
-A glyph ID is static. It is `glyph:` plus the public half of a key generated on this machine. It is unguessable. It is not registered anywhere.
+A glyph ID is `glyph:` plus 64 lowercase hex characters, the canonical Ed25519 public key. Share the whole ID by hand.
 
-Share the whole ID. A short prefix is not an address.
+The ID changes only inside a conversation that already exists. This app seals one letter to that friend: the next ID, signed by the next key. Their app keeps the transcript and follows the new ID after they accept it. Anyone outside that conversation still cannot find either ID. A letter that is never sent leaves the new ID as a separate person.
 
-The ID changes only inside a conversation that already exists. This app seals one message to that friend: the next ID is this, and the next key signs that message. Their app keeps the transcript and follows the new ID after they accept it. Anyone who was not in that conversation still cannot find either ID. If that message is never sent, the new ID is a new person.
+A display name is a private label on this machine. It is never an address and never a way to search.
 
-## Privacy
+## Letters
 
-Users are anonymous except to someone who already has their glyph ID.
-
-This program does not announce itself on the LAN, keep a peer directory, look people up by name, or publish who is online. Knowing an ID is the only way to address someone.
-
-## Messages
-
-A message is signed by the sender and sealed to the recipient's glyph ID. The mailbox stores ciphertext. The connection to the mailbox is TLS, pinned to that mailbox's key.
-
-Each message carries:
-
-- a counter, one sequence per sender in that conversation
-- a send time, for display
-
-The app shows messages in counter order. It holds a letter until the next counter arrives. The send time is not the order. Clocks disagree, and a sender can write any time.
-
-## Conversations
-
-A conversation is local. It is stored under the friend's current glyph ID. A display name is a private label on this machine. It is never an address and never a way to search.
-
-Opening a chat means pasting a glyph ID you were given. Sending seals to that ID and hands the letter to the mailbox.
+A letter is signed by the sender and sealed to the recipient's glyph ID. The mailbox stores the ciphertext. The connection to the mailbox is TLS 1.3, pinned to that mailbox's key.
 
 ## Mailbox
 
-The mailbox is a separate program, [glyph-mailbox](https://github.com/01wrx/glyph-mailbox). It is a LAN peer of its owner.
+The mailbox is [glyph-mailbox](https://github.com/01wrx/glyph-mailbox). It listens on the LAN only. It accepts the owner, and friends the owner has introduced by full glyph ID.
 
-- It listens on the LAN only, and only for a private, loopback, or link-local source.
-- It accepts the owner, and friends the owner has introduced by glyph ID. The owner can remove a friend.
-- It stores opaque letters and returns them in pages when that recipient's app asks.
-- It does not read mail, enroll strangers, or publish its address.
-
-The owner's app reads the mailbox key from the mailbox directory. A friend on that same LAN uses the same box for both directions, and is given the address together with the mailbox public key (`box-pub`, or `GLYPH_MAILBOX` and `GLYPH_MAILBOX_KEY`). A friend who is not on that LAN cannot reach the box.
+The owner's app reads the mailbox public key from the mailbox directory. A friend on that same LAN uses the same box for both directions, and is given the address together with that public key (`GLYPH_MAILBOX` and `GLYPH_MAILBOX_KEY`). A friend who is not on that LAN cannot reach the box.
 
 Either person can close glyph. Letters wait on the mailbox until an app on that LAN picks them up.
 
-## This program
+glyph can run the mailbox itself:
 
-glyph is the app people run:
+```powershell
+.\glyph.exe mailbox -dir C:\mailbox-data -owner glyph:... -addr 192.168.1.20:7420
+```
 
-- one key file
-- local transcripts
-- a window with your ID, chats, a composer, and the mailbox address
-
-Seal, then hand the blob to the mailbox. Pull blobs addressed to you and open them.
-
-## Not in this program
-
-No live LAN messenger, no DHT, no public-IP lookup, no machine attestation, and no accounts. Those made people findable or tied an ID to a particular computer. They are not part of this design.
+The address is a private, loopback, or link-local IP. `-owner` is a public glyph ID. The mailbox process is not given the private key.
