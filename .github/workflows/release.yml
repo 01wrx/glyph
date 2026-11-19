@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout glyph
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout mailbox
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 01wrx/glyph-mailbox
+          ref: f3c3b180246430f7a51db0f02d01eb6052a356cf
+          path: mailbox-src
+          persist-credentials: false
+
+      - name: Link mailbox module
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:GITHUB_WORKSPACE '..\glyph-mailbox'
+          $target = Join-Path $env:GITHUB_WORKSPACE 'mailbox-src'
+          New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+
+      - name: Setup Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.26.11"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -trimpath -o glyph.exe ./cmd/glyph
+
+      - name: Attest build
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: glyph.exe
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          @"
+          Windows executable for glyph ${{ github.ref_name }}.
+
+          GitHub Actions built glyph.exe and published a build provenance attestation.
+          Verify the downloaded file:
+
+          gh attestation verify glyph.exe --repo ${{ github.repository }}
+          "@ | Set-Content -Encoding utf8NoBOM notes.txt
+          gh release create "${{ github.ref_name }}" glyph.exe --title "${{ github.ref_name }}" --notes-file notes.txt

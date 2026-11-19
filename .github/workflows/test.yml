@@ -1,0 +1,49 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout glyph
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout mailbox
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 01wrx/glyph-mailbox
+          ref: f3c3b180246430f7a51db0f02d01eb6052a356cf
+          path: mailbox-src
+          persist-credentials: false
+
+      - name: Link mailbox module
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:GITHUB_WORKSPACE '..\glyph-mailbox'
+          $target = Join-Path $env:GITHUB_WORKSPACE 'mailbox-src'
+          if ($IsWindows) {
+            New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+          } else {
+            New-Item -ItemType SymbolicLink -Path $link -Target $target | Out-Null
+          }
+
+      - name: Setup Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.26.11"
+
+      - name: Test
+        run: go test ./...
