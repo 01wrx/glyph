@@ -5,13 +5,15 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout glyph
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,17 +51,94 @@ jobs:
         with:
           subject-path: glyph.exe
 
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: glyph-windows
+          path: glyph.exe
+
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout glyph
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout mailbox
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 01wrx/glyph-mailbox
+          ref: f3c3b180246430f7a51db0f02d01eb6052a356cf
+          path: mailbox-src
+          persist-credentials: false
+
+      - name: Link mailbox module
+        run: ln -sfn "$GITHUB_WORKSPACE/mailbox-src" "$GITHUB_WORKSPACE/../glyph-mailbox"
+
+      - name: Setup Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.26.11"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build universal binary
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/glyph-arm64 ./cmd/glyph
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o dist/glyph-amd64 ./cmd/glyph
+          lipo -create -output dist/glyph dist/glyph-arm64 dist/glyph-amd64
+          chmod +x dist/glyph
+          lipo -info dist/glyph
+          rm dist/glyph-arm64 dist/glyph-amd64
+          (cd dist && zip -X -r ../glyph-macos.zip glyph)
+
+      - name: Attest build
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: glyph-macos.zip
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: glyph-macos
+          path: glyph-macos.zip
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: glyph-*
+          merge-multiple: true
+          path: dist
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
-          @"
-          Windows executable for glyph ${{ github.ref_name }}.
+          cat > notes.txt <<EOF
+          glyph ${{ github.ref_name }}.
 
-          GitHub Actions built glyph.exe and published a build provenance attestation.
-          Verify the downloaded file:
+          Windows: glyph.exe. It opens its own window.
+
+          Mac: glyph-macos.zip. Unzip it and run ./glyph. One binary covers Apple silicon and Intel. It opens in the browser. There is no installer.
+
+          GitHub Actions built both files and published build provenance.
+          Verify a download:
 
           gh attestation verify glyph.exe --repo ${{ github.repository }}
-          "@ | Set-Content -Encoding utf8NoBOM notes.txt
-          gh release create "${{ github.ref_name }}" glyph.exe --title "${{ github.ref_name }}" --notes-file notes.txt
+          gh attestation verify glyph-macos.zip --repo ${{ github.repository }}
+          EOF
+          gh release create "${{ github.ref_name }}" dist/glyph.exe dist/glyph-macos.zip --title "${{ github.ref_name }}" --notes-file notes.txt

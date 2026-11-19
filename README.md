@@ -15,6 +15,8 @@ go build -o glyph.exe ./cmd/glyph
 .\glyph.exe
 ```
 
+`glyph.exe` is a Windows program. Mac users download `glyph-macos.zip` from the releases page, unzip it, and run `./glyph`. That binary runs on Apple silicon and Intel. It opens in the browser.
+
 The key, transcripts, and preferences live under `%AppData%\glyph`. `GLYPH_HOME` chooses another directory.
 
 ## Window
