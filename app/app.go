@@ -101,11 +101,20 @@ func Open(home string) (*App, error) {
 	if err := a.loadPrefs(); err != nil {
 		return nil, err
 	}
-	node, err := direct.Listen(id, a.friendIDs, a.take)
+	listen := strings.TrimSpace(os.Getenv("GLYPH_DIRECT"))
+	node, err := direct.Listen(listen, id, a.friendIDs, a.take)
 	if err != nil {
 		return nil, err
 	}
 	a.node = node
+	if sums, err := a.store.List(); err == nil {
+		for _, sum := range sums {
+			reach, err := a.store.Reach(sum.ID)
+			if err == nil && reach != "" {
+				_ = a.node.SetReach(sum.ID, reach)
+			}
+		}
+	}
 	return a, nil
 }
 
@@ -146,8 +155,11 @@ func (a *App) touchLocked() { _ = a.onlineLocked() }
 // already exists. The ID may omit the glyph: prefix. A prefix, a self ID,
 // and anything that is not a full ID do nothing.
 func (a *App) OpenChat(raw string) bool {
-	id, err := normalizeID(raw)
+	id, reach, err := splitTarget(raw)
 	if err != nil || id == a.store.Self() {
+		return false
+	}
+	if reach != "" && direct.ValidateDial(reach) != nil {
 		return false
 	}
 	a.mu.Lock()
@@ -157,8 +169,34 @@ func (a *App) OpenChat(raw string) bool {
 			return false
 		}
 	}
+	if reach != "" {
+		if a.store.SetReach(id, reach) != nil {
+			return false
+		}
+		if a.node != nil {
+			_ = a.node.SetReach(id, reach)
+		}
+	}
 	a.open = id
 	return true
+}
+
+func splitTarget(raw string) (id, reach string, err error) {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, "@"); i >= 0 {
+		id, reach = raw[:i], strings.TrimSpace(raw[i+1:])
+	} else {
+		fields := strings.Fields(raw)
+		if len(fields) == 0 {
+			return "", "", errors.New("glyph: invalid id")
+		}
+		id = fields[0]
+		if len(fields) > 1 {
+			reach = fields[1]
+		}
+	}
+	id, err = normalizeID(id)
+	return id, reach, err
 }
 
 // Send seals text to peer and hands it directly to that glyph ID.
@@ -288,7 +326,17 @@ func (a *App) RemoveFriend(peer string) bool {
 		a.prefs.Blocked = a.blockedIDsLocked()
 		return false
 	}
+	if a.node != nil {
+		a.node.Drop(id)
+	}
 	return true
+}
+
+func listenAddr(n *direct.Node) string {
+	if n == nil {
+		return ""
+	}
+	return n.Addr()
 }
 
 func (a *App) friendIDs() []string {
@@ -316,17 +364,18 @@ func (a *App) blockedIDsLocked() []string {
 	return out
 }
 
-func (a *App) take(peer string, blob []byte) {
+func (a *App) take(peer string, blob []byte) bool {
 	msg, err := seal.Open(a.id.Private(), blob)
 	if err != nil || msg.Sender != peer {
-		return
+		return false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if _, blocked := a.blocked[peer]; blocked {
-		return
+		return false
 	}
-	_ = a.store.Ingest(msg)
+	err = a.store.Ingest(msg)
+	return err == nil || errors.Is(err, transcript.ErrReplay)
 }
 
 // AcceptSuccessor follows a pending successor for this conversation.
@@ -451,6 +500,7 @@ func (a *App) snapshotLocked() stateJSON {
 		Network:     a.network,
 		Mailbox:     mail,
 		Direct:      a.node != nil,
+		Listen:      listenAddr(a.node),
 		MailboxAddr: box,
 		MailboxKey:  boxKey,
 		Open:        open,

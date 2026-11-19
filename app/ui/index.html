@@ -265,7 +265,8 @@
           </div>
           <div data-paste hidden>
             <div class="gid-wrap">
-              <input class="gid-input" data-paste-id autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Glyph ID" placeholder="enter glyph...">
+              <input class="gid-input" data-paste-id autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Glyph ID" placeholder="glyph id">
+              <input class="gid-input" data-paste-reach autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Where to reach them" placeholder="host:port">
               <button type="button" class="gid-go" data-open aria-label="Open chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
             </div>
           </div>
@@ -282,6 +283,8 @@
           </div>
           <p class="set-k">identity</p>
           <p class="id-mono" data-id-full></p>
+          <p class="set-k">reachable at</p>
+          <p class="id-mono share-line" data-listen>port 7421</p>
           <p class="set-k">network</p>
           <div class="net-row">
             <p class="net" data-net>looking up network…</p>
@@ -324,7 +327,7 @@
         <div class="dock" data-composer>
           <input data-letter aria-label="Letter" autocomplete="off">
           <button type="button" class="send" data-send>Send</button>
-          <p class="hint" data-send-hint hidden>they are not on this network</p>
+          <p class="hint" data-send-hint hidden>not reachable</p>
         </div>
       </section>
       <div class="tpm-pop" data-tpm-pop hidden role="dialog" aria-label="TPM">
@@ -498,6 +501,8 @@
         if (shown) shown.textContent = idText;
         var net = shell.querySelector("[data-net]");
         if (net) net.textContent = state.network || "network unavailable";
+        var listen = shell.querySelector("[data-listen]");
+        if (listen) listen.textContent = state.listen || "port 7421";
         var share = shell.querySelector("[data-share]");
         if (share) {
           if (state.mailbox === "online" && state.mailboxAddr) share.removeAttribute("hidden");
@@ -551,7 +556,7 @@
           var hint = shell.querySelector("[data-send-hint]");
           if (!res || !res.ok) {
             if (hint) {
-              hint.textContent = "they are not on this network";
+              hint.textContent = "not reachable";
               hint.removeAttribute("hidden");
             }
             if (res && res.state) render(res.state);
@@ -567,9 +572,12 @@
         if (!field) return;
         var raw = field.value;
         if (!raw.replace(/\s+/g, "")) return;
-        post("/api/open", {id: raw}).then(function (res) {
+        var reachEl = shell.querySelector("[data-paste-reach]");
+        var reach = reachEl ? reachEl.value : "";
+        post("/api/open", {id: raw, reach: reach}).then(function (res) {
           if (!res || !res.ok) return;
           field.value = "";
+          if (reachEl) reachEl.value = "";
           closePaste();
           shell.setAttribute("data-pane", "thread");
           if (res.state) render(res.state);

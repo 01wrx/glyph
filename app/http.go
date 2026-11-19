@@ -19,6 +19,7 @@ type stateJSON struct {
 	Network     string     `json:"network"`
 	Mailbox     string     `json:"mailbox"`
 	Direct      bool       `json:"direct"`
+	Listen      string     `json:"listen,omitempty"`
 	MailboxAddr string     `json:"mailboxAddr,omitempty"`
 	MailboxKey  string     `json:"mailboxKey,omitempty"`
 	Open       string     `json:"open"`
@@ -115,9 +116,16 @@ func (a *App) serveState(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) serveOpen(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		Reach string `json:"reach"`
 	}
-	a.serveBool(w, r, &body, func() bool { return a.OpenChat(body.ID) })
+	a.serveBool(w, r, &body, func() bool {
+		raw := body.ID
+		if strings.TrimSpace(body.Reach) != "" {
+			raw = strings.TrimSpace(body.ID) + "@" + strings.TrimSpace(body.Reach)
+		}
+		return a.OpenChat(raw)
+	})
 }
 
 func (a *App) serveSend(w http.ResponseWriter, r *http.Request) {

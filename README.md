@@ -2,7 +2,9 @@
 
 glyph is a window for two people who already have each other's glyph ID. The ID is the public half of a key made on that machine. It is not registered anywhere. A short prefix of it is not an address.
 
-Both apps have to be open on the same network. Each one announces a private address, signed so that only someone who was given the glyph ID can recognize it. The announcement does not contain the ID. The connection is TLS 1.3 pinned to that ID, and the letter inside is sealed to it. A person who was not added cannot connect, and the network cannot read the letter.
+The app is peer to peer over the internet. One machine listens, and the other dials it. The host and port are only where the connection goes. The glyph ID is who is on the other end. TLS 1.3 is pinned to that ID, and the letter is sealed to it. A person who was not added cannot connect. An address learned from the network is never dialed.
+
+The mailbox is the only part that stays on the LAN. The window does not need it to send.
 
 ![glyph](docs/app.png)
 
@@ -23,7 +25,7 @@ The key, transcripts, and preferences live under `%AppData%\glyph`. `GLYPH_HOME`
 
 **you are** is the name on this machine. Clicking it copies the full glyph ID.
 
-**+** takes a glyph ID you were given. The whole ID is required. A letter is sealed to that ID and handed directly to that person's app.
+**+** takes a glyph ID you were given, and the host:port where that app can be reached. The whole ID is required. A letter is sealed to that ID and handed directly to that app. Settings shows the port this app is listening on. Give the other person your public host and that port.
 
 The open chat shows letters in counter order, one sequence per sender. The time on a letter is the sender's clock, shown for reading. The app holds a letter until the next counter arrives.
 
@@ -45,7 +47,7 @@ A letter is signed by the sender and sealed to the recipient's glyph ID. It is c
 
 ## Mailbox
 
-The window does not use a mailbox. Two open apps on the same network deliver letters directly.
+The window delivers letters over the internet. It does not use a mailbox. The mailbox is the only glyph program that refuses a public address.
 
 [glyph-mailbox](https://github.com/01wrx/glyph-mailbox) is a separate LAN box for sealed letters. It is not required to send. glyph can still run that box:
 

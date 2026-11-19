@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"glyph/identity"
 
@@ -25,6 +24,7 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("GLYPH_MAILBOX_KEY")
 	os.Unsetenv("GLYPH_HOME")
 	os.Unsetenv("GLYPH_LISTEN")
+	os.Setenv("GLYPH_DIRECT", "127.0.0.1:0")
 	os.Exit(m.Run())
 }
 
@@ -65,10 +65,13 @@ func TestExchangeAndQuietFailures(t *testing.T) {
 		t.Fatal("friend open")
 	}
 	if owner.Send(friend.id.ID(), "too-soon") {
-		t.Fatal("sent before the friend was on the network")
+		t.Fatal("sent before a reachable address was given")
 	}
-	if !friend.node.AcceptBeacon(owner.node.Beacon()) || !owner.node.AcceptBeacon(friend.node.Beacon()) {
-		t.Fatal("announcement was not recognized")
+	if err := owner.node.SetReach(friend.id.ID(), friend.node.Addr()); err != nil {
+		t.Fatal(err)
+	}
+	if err := friend.node.SetReach(owner.id.ID(), owner.node.Addr()); err != nil {
+		t.Fatal(err)
 	}
 
 	const marker = "glyph-window-marker-9f3a2c"
@@ -141,11 +144,8 @@ func TestForgedAnnouncementDoesNotDeliver(t *testing.T) {
 	if !owner.OpenChat(friend.id.ID()) || !friend.OpenChat(owner.id.ID()) || !stranger.OpenChat(owner.id.ID()) {
 		t.Fatal("open")
 	}
-	if owner.node.AcceptBeacon(stranger.node.Beacon()) {
-		t.Fatal("a glyph ID that was not added was recognized")
-	}
-	if !stranger.node.AcceptBeacon(owner.node.Beacon()) {
-		t.Fatal("stranger could not recognize an ID they added")
+	if err := stranger.node.SetReach(owner.id.ID(), owner.node.Addr()); err != nil {
+		t.Fatal(err)
 	}
 	if stranger.Send(owner.id.ID(), "intruder") {
 		t.Fatal("stranger delivered a letter")
@@ -221,7 +221,7 @@ func TestWindowPage(t *testing.T) {
 		t.Fatalf("page %d", res.StatusCode)
 	}
 	page := string(body)
-	for _, want := range []string{"you are:", "enter glyph...", "they are not on this network", "auto update from GitHub", "no tpm implementation"} {
+	for _, want := range []string{"you are:", "glyph id", "host:port", "auto update from GitHub", "no tpm implementation"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("page missing %q", want)
 		}
@@ -275,9 +275,6 @@ func openTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { a.Close() })
 	a.candidates = []string{}
-	if a.node != nil {
-		a.node.SetFind(30 * time.Millisecond)
-	}
 	return a
 }
 
