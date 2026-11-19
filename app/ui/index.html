@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>glyph</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #121614; }
+    #glyph { height: 100%; }
+    #glyph [hidden] { display: none !important; }
+    #glyph .shell {
+      --list: oklch(0.145 0.008 160);
+      --thread: oklch(0.175 0.008 160);
+      --soft: oklch(0.24 0.012 160);
+      --in: oklch(0.27 0.012 160);
+      --out: oklch(0.36 0.05 165);
+      --ink: #e6eae8;
+      --muted: #8b9390;
+      --meta: oklch(0.82 0.012 160);
+      --accent: #4ac49e;
+      --on-accent: oklch(0.18 0.02 165);
+      --line: oklch(0.30 0.01 160);
+      --danger: oklch(0.75 0.12 30);
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      height: 100%;
+      min-height: 0;
+      background: var(--thread);
+      color: var(--ink);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      position: relative;
+    }
+    #glyph .shell[data-theme="light"] {
+      --list: oklch(0.955 0.004 160); --thread: oklch(0.985 0.003 160); --soft: oklch(0.92 0.008 160);
+      --in: oklch(0.93 0.006 160); --out: oklch(0.88 0.045 165); --ink: #181c1a; --muted: #5e6662;
+      --meta: oklch(0.40 0.012 160); --accent: #0d6b56; --on-accent: oklch(0.98 0.004 160);
+      --line: oklch(0.88 0.008 160); --danger: oklch(0.45 0.14 30);
+    }
+    #glyph .shell * { box-sizing: border-box; }
+    #glyph .list {
+      display: flex; flex-direction: column; min-width: 0; min-height: 0;
+      background: var(--list); border-right: 1px solid var(--line);
+    }
+    #glyph .brand { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 14px 12px 8px; }
+    #glyph .brand-row { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 12px; }
+    #glyph .mark { margin: 0; font-size: 16px; font-weight: 700; line-height: 1; color: var(--ink); user-select: none; }
+    #glyph .rule { display: block; width: 40px; height: 2px; background: var(--accent); }
+    #glyph .youare-wrap { position: relative; display: inline-flex; align-items: center; }
+    #glyph .youare, #glyph .plus {
+      font: inherit; background: transparent; border: 0; padding: 0; cursor: pointer; color: var(--muted);
+    }
+    #glyph .youare { font-size: 13px; user-select: none; }
+    #glyph .youare:hover, #glyph .youare:focus-visible,
+    #glyph .plus:hover, #glyph .plus:focus-visible { color: var(--accent); }
+    #glyph .copied {
+      position: absolute; right: calc(100% + 18px); top: 0;
+      color: var(--accent); font-size: 12px; white-space: nowrap; pointer-events: none; user-select: none;
+    }
+    #glyph .chats-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 4px; }
+    #glyph .chats-label { margin: 0; font-size: 13px; color: var(--ink); user-select: none; }
+    #glyph .plus { font-size: 14px; font-weight: 700; line-height: 1; padding: 0 2px; user-select: none; }
+    #glyph .head { display: flex; align-items: center; gap: 8px; padding: 12px; min-height: 52px; border-bottom: 1px solid var(--line); }
+    #glyph .title {
+      margin: 0; font-weight: 500; font-size: 16px; user-select: none; cursor: default;
+      flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #glyph .keep {
+      flex: 0 0 auto; border: 0; background: transparent; color: var(--muted);
+      font: inherit; font-size: 12px; cursor: pointer; user-select: none;
+    }
+    #glyph .hint, #glyph .mail, #glyph .bmeta, #glyph .row-time, #glyph .row-preview { color: var(--muted); font-size: 12px; }
+    #glyph .hint, #glyph .mail, #glyph .btext, #glyph .bmeta { margin: 0; }
+    #glyph [data-paste] { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 0 12px 12px; min-width: 0; }
+    #glyph .gid-wrap { position: relative; min-width: 0; }
+    #glyph .gid-wrap .gid-input { padding-right: 36px; }
+    #glyph .gid-go {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
+      background: transparent; color: var(--muted); cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    #glyph .gid-go svg { width: 16px; height: 16px; }
+    #glyph .gid-go:hover, #glyph .gid-go:focus-visible { color: var(--accent); }
+    #glyph .rows { display: flex; flex-direction: column; gap: 2px; padding: 6px; flex: 1; min-height: 0; overflow: auto; }
+    #glyph .chats-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
+    #glyph .chats-pane input { user-select: text; cursor: text; }
+    #glyph .logs, #glyph .log, #glyph .bubble, #glyph .bmeta { user-select: none; cursor: default; }
+    #glyph .btext { user-select: text; cursor: text; }
+    #glyph .settings {
+      flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px;
+    }
+    #glyph .set-k { margin: 2px 0 0; color: var(--muted); font-size: 11px; cursor: default; user-select: none; }
+    #glyph .you-row, #glyph .net-row, #glyph .you-actions, #glyph .you-id { display: flex; align-items: center; gap: 8px; }
+    #glyph .you-row, #glyph .net-row { justify-content: space-between; }
+    #glyph .you-id { flex: 1; min-width: 0; }
+    #glyph .you-actions { flex: 0 0 auto; align-items: flex-start; }
+    #glyph .tiny {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 18px; padding: 0; border: 0; background: transparent; color: var(--muted);
+      font: inherit; font-size: 12px; cursor: pointer; align-self: flex-start; line-height: 0;
+    }
+    #glyph .tiny svg { width: 14px; height: 14px; }
+    #glyph .chip {
+      width: 14px; height: 14px; margin-top: 3px; padding: 0; border: 0; background: transparent;
+      color: var(--muted); cursor: pointer; display: inline-flex; align-items: flex-start; justify-content: center;
+      line-height: 0; align-self: flex-start;
+    }
+    #glyph .chip svg { width: 14px; height: 14px; display: block; }
+    #glyph .chip:hover, #glyph .chip:focus-visible { color: var(--accent); }
+    #glyph .tpm-pop {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      z-index: 2; min-width: 220px; display: flex; flex-direction: column; gap: 12px;
+      padding: 16px; background: var(--thread); color: var(--ink); border: 1px solid var(--line);
+    }
+    #glyph .tpm-msg { margin: 0; font-size: 14px; }
+    #glyph .tpm-ok {
+      align-self: flex-end; border: 0; background: transparent; color: var(--accent);
+      font: inherit; font-size: 13px; padding: 0; cursor: pointer; user-select: none;
+    }
+    #glyph .tiny:hover, #glyph .tiny:focus-visible { color: var(--accent); }
+    #glyph .id-mono, #glyph .net {
+      margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere;
+      font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+      cursor: default; user-select: none;
+    }
+    #glyph .settings input:not([type="checkbox"]), #glyph .settings select {
+      border-radius: 4px; padding: 6px 8px; font-size: 13px; color: var(--ink); background: var(--list);
+      border: 0; border-bottom: 1px solid var(--line);
+    }
+    #glyph .setup {
+      border: 1px solid var(--ink); border-radius: 0; background: transparent; color: var(--ink);
+      font: inherit; font-size: 13px; padding: 6px 14px; cursor: pointer; user-select: none;
+    }
+    #glyph .setup:hover, #glyph .setup:focus-visible { color: var(--accent); border-color: var(--accent); }
+    #glyph .mail-setup { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 4px; }
+    #glyph .list:not(:has(.mail[data-mailbox="none"])) .mail-setup { display: none; }
+    #glyph .settings input.name-field {
+      width: 8ch; min-width: 4ch; max-width: 12rem; padding: 0; margin: 0;
+      border: 0; border-radius: 0; background: transparent; color: var(--ink);
+      font-size: 14px; line-height: 1.2; field-sizing: content;
+    }
+    #glyph .settings input.name-field[readonly] { pointer-events: none; border-bottom: 0; }
+    #glyph .settings input.name-field:not([readonly]) {
+      flex: 1; width: 100%; max-width: none; field-sizing: fixed;
+      border-bottom: 1px solid var(--accent);
+    }
+    #glyph .update-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+    #glyph .update-row > span { cursor: default; user-select: none; }
+    #glyph .switch {
+      width: 28px; height: 16px; flex: 0 0 auto; padding: 2px; border: 0; border-radius: 8px;
+      background: var(--line); display: flex; align-items: center; cursor: pointer;
+    }
+    #glyph .switch-knob { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transform: translateX(0); }
+    #glyph .switch[aria-pressed="true"] { background: var(--accent); }
+    #glyph .switch[aria-pressed="true"] .switch-knob { background: var(--on-accent); transform: translateX(12px); }
+    @media (prefers-reduced-motion: no-preference) {
+      #glyph .switch-knob { transition: transform 0.15s linear; }
+    }
+    #glyph .row {
+      display: flex; gap: 10px; align-items: center; width: 100%; text-align: left;
+      padding: 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+    }
+    #glyph .row[aria-pressed="true"] { background: var(--soft); }
+    #glyph .row:hover { background: color-mix(in oklch, var(--ink) 7%, transparent); }
+    #glyph .row[aria-pressed="true"]:hover { background: color-mix(in oklch, var(--ink) 8%, var(--soft)); }
+    #glyph .av {
+      width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+      display: grid; place-items: center; background: var(--soft); color: var(--accent); font-weight: 500;
+    }
+    #glyph .row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+    #glyph .row-top { display: flex; justify-content: space-between; gap: 8px; }
+    #glyph .row-name { font-weight: 500; }
+    #glyph .row-preview { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    #glyph .list-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 12px 10px;
+    }
+    #glyph .gear {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; padding: 0; border: 0; background: transparent;
+      color: var(--muted); cursor: pointer;
+    }
+    #glyph .gear svg { width: 16px; height: 16px; transform-origin: center; transform-box: fill-box; }
+    #glyph .gear:hover svg, #glyph .gear:focus-visible svg { animation: glyph-gear-spin 0.5s linear; }
+    @keyframes glyph-gear-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      #glyph .gear:hover svg, #glyph .gear:focus-visible svg { animation: none; }
+    }
+    #glyph .gear:hover, #glyph .gear:focus-visible { color: var(--accent); }
+    #glyph .mail {
+      display: flex; align-items: center; justify-content: flex-end; gap: 5px;
+      padding: 0; font-size: 13px; cursor: default; user-select: none;
+    }
+    #glyph .mail[data-mailbox="none"] { display: none; }
+    #glyph .lamp { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+    #glyph .thread { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+    #glyph .logs {
+      flex: 1; display: flex; flex-direction: column; gap: 8px;
+      padding: 16px; min-width: 0; min-height: 0; overflow: auto;
+    }
+    #glyph .log { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
+    #glyph .bubble { max-width: 78%; padding: 8px 12px 4px; }
+    #glyph .bubble.in { align-self: flex-start; background: var(--in); border-radius: 16px 16px 16px 4px; }
+    #glyph .bubble.out { align-self: flex-end; background: var(--out); border-radius: 16px 16px 4px 16px; }
+    #glyph .btext { font-size: 15px; line-height: 1.4; overflow-wrap: break-word; white-space: pre-wrap; }
+    #glyph .bmeta { text-align: right; color: var(--meta); font-variant-numeric: tabular-nums; }
+    #glyph .empty { text-align: center; padding: 24px 8px; }
+    #glyph .dock { display: flex; align-items: center; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+    #glyph .dock [data-letter] {
+      flex: 1 1 auto; width: auto; height: 40px; margin: 0; padding: 0 14px;
+      line-height: 40px; border-radius: 20px;
+    }
+    #glyph textarea, #glyph input, #glyph select.keep {
+      font: inherit; color: var(--ink);
+    }
+    #glyph textarea, #glyph input {
+      width: 100%; min-width: 0; border: 0; background: var(--soft); border-radius: 20px; padding: 10px 14px;
+    }
+    #glyph .gid-input { border-radius: 12px; font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 12px; }
+    #glyph .send {
+      flex: 0 0 auto; height: 40px; padding: 0 16px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font: inherit; font-weight: 500; line-height: 1; cursor: pointer; border: 0; user-select: text;
+      background: var(--accent); color: var(--on-accent); border-radius: 20px;
+    }
+    #glyph .send:hover, #glyph .send:focus-visible { background: color-mix(in oklch, var(--accent) 82%, white); }
+    #glyph .back { display: none; }
+    #glyph .shell button:focus-visible, #glyph .shell textarea:focus-visible, #glyph .shell input:focus-visible, #glyph .shell select:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    #glyph textarea::placeholder, #glyph input::placeholder { color: var(--muted); }
+    @media (max-width: 640px) {
+      #glyph .shell { grid-template-columns: minmax(0, 1fr); }
+      #glyph .list { border-right: 0; }
+      #glyph .back { display: inline; }
+      #glyph .shell[data-pane="thread"] .list { display: none; }
+      #glyph .shell[data-pane="list"] .thread { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="glyph">
+    <div class="shell" data-theme="dark" data-pane="list" data-current="">
+      <div class="list">
+        <div class="chats-pane">
+          <div class="brand">
+            <div class="brand-row">
+              <p class="mark">glyph</p>
+              <span class="youare-wrap">
+                <button type="button" class="youare" data-copy>you are: you</button>
+                <span class="copied" data-copied hidden>copied id</span>
+              </span>
+            </div>
+            <span class="rule" aria-hidden="true"></span>
+            <p class="gid" data-id-text hidden></p>
+          </div>
+          <div class="chats-head">
+            <p class="chats-label">chats</p>
+            <button type="button" class="plus" data-show-paste aria-expanded="false" aria-label="Paste an ID">+</button>
+          </div>
+          <div data-paste hidden>
+            <div class="gid-wrap">
+              <input class="gid-input" data-paste-id autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Glyph ID" placeholder="enter glyph...">
+              <button type="button" class="gid-go" data-open aria-label="Open chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+            </div>
+          </div>
+          <div class="rows" role="list" aria-label="Letters" data-chats></div>
+        </div>
+        <div class="settings" data-settings hidden>
+          <p class="set-k">you</p>
+          <div class="you-row">
+            <span class="you-id"><input class="name-field" data-you-name value="you" data-saved="you" size="3" readonly maxlength="256" aria-label="Display name"></span>
+            <span class="you-actions">
+              <button type="button" class="tiny" data-rename aria-label="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
+              <button type="button" class="chip" data-tpm aria-label="TPM"><svg viewBox="0 0 24 22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="1" width="16" height="10" rx="1.5"/><path d="M7 11v8M11 11v8M15 11v8M19 11v8"/></svg></button>
+            </span>
+          </div>
+          <p class="set-k">identity</p>
+          <p class="id-mono" data-id-full></p>
+          <p class="set-k">network</p>
+          <div class="net-row">
+            <p class="net" data-net>looking up network…</p>
+            <button type="button" class="tiny" data-refresh aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+          </div>
+          <p class="set-k">theme</p>
+          <select class="theme" data-theme aria-label="Theme">
+            <option value="dark" selected>dark</option>
+            <option value="light">light</option>
+          </select>
+          <div class="mail-setup">
+            <p class="set-k">mailbox</p>
+            <button type="button" class="setup" data-setup>setup</button>
+          </div>
+          <p class="set-k">updates</p>
+          <div class="update-row">
+            <span>auto update from GitHub</span>
+            <button type="button" class="switch" data-update aria-pressed="false" aria-label="Auto update from GitHub"><span class="switch-knob" aria-hidden="true"></span></button>
+          </div>
+        </div>
+        <div class="list-foot">
+          <button type="button" class="gear" data-gear aria-label="Settings" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          <p class="mail" data-mailbox="none"><span class="lamp" aria-hidden="true"></span>mailbox</p>
+        </div>
+      </div>
+      <section class="thread" aria-label="Open letter">
+        <div class="head">
+          <button type="button" class="youare back" data-back>Back</button>
+          <p class="title" data-title></p>
+          <button type="button" class="keep" data-accept hidden>accept new id</button>
+          <button type="button" class="keep" data-remove hidden>remove</button>
+          <select class="keep" data-keep hidden aria-label="Record">
+            <option value="0">keep</option>
+            <option value="86400">1 day</option>
+            <option value="604800">7 days</option>
+            <option value="2592000">30 days</option>
+            <option value="off">off</option>
+          </select>
+        </div>
+        <div class="logs" data-logs>
+          <p class="hint empty" data-empty>Letters show here in counter order.</p>
+          <div class="log" data-log></div>
+        </div>
+        <div class="dock" data-composer>
+          <input data-letter aria-label="Letter" autocomplete="off">
+          <button type="button" class="send" data-send>Send</button>
+        </div>
+      </section>
+      <div class="tpm-pop" data-tpm-pop hidden role="dialog" aria-label="TPM">
+        <p class="tpm-msg">no tpm implementation</p>
+        <button type="button" class="tpm-ok" data-tpm-ok>OK</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var TOKEN = "";
+      (function readToken() {
+        var q = new URLSearchParams(location.search);
+        var t = q.get("t");
+        if (!t) return;
+        TOKEN = t;
+        q.delete("t");
+        var rest = q.toString();
+        history.replaceState(null, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
+      })();
+      var root = document.getElementById("glyph");
+      var shell = root.querySelector(".shell");
+      var flash = 0;
+      var busy = false;
+      var chatSig = "";
+
+      function headers() {
+        return {"X-Glyph-Token": TOKEN, "Content-Type": "application/json"};
+      }
+      function get(path) {
+        return fetch(path, {headers: headers(), cache: "no-store"}).then(function (r) {
+          if (!r.ok) throw new Error();
+          return r.json();
+        });
+      }
+      function post(path, body) {
+        return fetch(path, {method: "POST", headers: headers(), body: JSON.stringify(body || {})}).then(function (r) {
+          if (!r.ok) throw new Error();
+          return r.json();
+        });
+      }
+      function stamp(unix) {
+        var d = new Date(unix * 1000);
+        if (isNaN(d.getTime())) return "";
+        return new Intl.DateTimeFormat(undefined, {hour: "2-digit", minute: "2-digit", hourCycle: "h23"}).format(d);
+      }
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(function () { copyFallback(text); });
+          return;
+        }
+        copyFallback(text);
+      }
+      function copyFallback(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (err) {}
+        ta.remove();
+      }
+      function draw(state) {
+        var chats = state.chats || [];
+        var open = null;
+        for (var i = 0; i < chats.length; i++) if (chats[i].id === state.open) open = chats[i];
+        shell.setAttribute("data-current", open ? open.id : "");
+        var title = shell.querySelector("[data-title]");
+        if (title) title.textContent = open ? open.label : "";
+        var keep = shell.querySelector("[data-keep]");
+        var accept = shell.querySelector("[data-accept]");
+        if (accept) {
+          if (open && open.pending) accept.removeAttribute("hidden");
+          else accept.setAttribute("hidden", "");
+        }
+        var remove = shell.querySelector("[data-remove]");
+        if (remove) {
+          if (open) remove.removeAttribute("hidden");
+          else remove.setAttribute("hidden", "");
+        }
+        if (keep) {
+          if (!open) keep.setAttribute("hidden", "");
+          else {
+            keep.removeAttribute("hidden");
+            if (document.activeElement !== keep) keep.value = open.keep || "0";
+          }
+        }
+        var list = shell.querySelector("[data-chats]");
+        if (list) {
+          list.replaceChildren();
+          chats.forEach(function (chat) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "row";
+            btn.setAttribute("role", "listitem");
+            btn.setAttribute("data-chat", chat.id);
+            btn.setAttribute("aria-pressed", open && chat.id === open.id ? "true" : "false");
+            var av = document.createElement("span");
+            av.className = "av";
+            av.setAttribute("aria-hidden", "true");
+            var glyph = Array.from(chat.label || "");
+            av.textContent = glyph.length ? glyph[0].toUpperCase() : "";
+            var main = document.createElement("span");
+            main.className = "row-main";
+            var top = document.createElement("span");
+            top.className = "row-top";
+            var name = document.createElement("span");
+            name.className = "row-name";
+            name.textContent = chat.label || "";
+            var time = document.createElement("span");
+            time.className = "row-time";
+            time.textContent = chat.unix ? stamp(chat.unix) : "";
+            top.appendChild(name);
+            top.appendChild(time);
+            var prev = document.createElement("span");
+            prev.className = "row-preview";
+            prev.textContent = chat.preview || "";
+            main.appendChild(top);
+            main.appendChild(prev);
+            btn.appendChild(av);
+            btn.appendChild(main);
+            list.appendChild(btn);
+          });
+        }
+        var log = shell.querySelector("[data-log]");
+        var empty = shell.querySelector("[data-empty]");
+        var logs = shell.querySelector("[data-logs]");
+        var near = true;
+        if (logs) near = logs.scrollHeight - logs.scrollTop - logs.clientHeight < 80;
+        if (log) log.replaceChildren();
+        var msgs = open && open.messages ? open.messages : [];
+        if (empty) {
+          if (msgs.length) empty.setAttribute("hidden", "");
+          else empty.removeAttribute("hidden");
+        }
+        msgs.forEach(function (m) {
+          if (!log) return;
+          var div = document.createElement("div");
+          div.className = "bubble " + (m.out ? "out" : "in");
+          var text = document.createElement("p");
+          text.className = "btext";
+          text.textContent = m.kind === "successor" ? "new id " + (m.text || "") : (m.text || "");
+          var meta = document.createElement("p");
+          meta.className = "bmeta";
+          meta.textContent = stamp(m.unix);
+          div.appendChild(text);
+          div.appendChild(meta);
+          log.appendChild(div);
+        });
+        if (logs && near) logs.scrollTop = logs.scrollHeight;
+      }
+      function render(state) {
+        if (!state) return;
+        var theme = state.theme === "light" ? "light" : "dark";
+        shell.setAttribute("data-theme", theme);
+        document.documentElement.style.background = theme === "light" ? "#f4f6f5" : "#121614";
+        document.body.style.background = document.documentElement.style.background;
+        var mail = shell.querySelector("[data-mailbox]");
+        if (mail) mail.setAttribute("data-mailbox", state.mailbox === "online" ? "online" : "none");
+        var you = shell.querySelector("[data-copy]");
+        if (you) you.textContent = "you are: " + (state.name || "you");
+        var name = shell.querySelector("[data-you-name]");
+        if (name && name.hasAttribute("readonly")) {
+          name.value = state.name || "you";
+          name.setAttribute("data-saved", name.value);
+          name.size = Math.max(name.value.length, 1);
+        }
+        var idText = state.id || "";
+        var hidden = shell.querySelector("[data-id-text]");
+        var shown = shell.querySelector("[data-id-full]");
+        if (hidden) hidden.textContent = idText;
+        if (shown) shown.textContent = idText;
+        var net = shell.querySelector("[data-net]");
+        if (net) net.textContent = state.network || "network unavailable";
+        var themeSel = shell.querySelector("[data-theme]");
+        if (themeSel && document.activeElement !== themeSel) themeSel.value = theme;
+        var update = shell.querySelector("[data-update]");
+        if (update) update.setAttribute("aria-pressed", state.autoUpdate ? "true" : "false");
+        var sig = JSON.stringify(state.chats || []) + "\n" + (state.open || "");
+        if (sig !== chatSig) {
+          chatSig = sig;
+          draw(state);
+        }
+      }
+      function closePaste() {
+        var panel = shell.querySelector("[data-paste]");
+        var btn = shell.querySelector("[data-show-paste]");
+        if (panel) panel.setAttribute("hidden", "");
+        if (!btn) return;
+        btn.textContent = "+";
+        btn.setAttribute("aria-label", "Paste an ID");
+        btn.setAttribute("aria-expanded", "false");
+      }
+      function saveName() {
+        var input = shell.querySelector("[data-you-name]");
+        if (!input) return;
+        var saved = input.getAttribute("data-saved") || "you";
+        var name = input.value.replace(/^\s+|\s+$/g, "");
+        if (!name) name = saved;
+        input.value = name;
+        input.setAttribute("readonly", "");
+        post("/api/name", {name: name}).then(function (res) {
+          if (res && res.state) render(res.state);
+        }, function () {
+          input.value = saved;
+          input.setAttribute("data-saved", saved);
+        });
+      }
+      function sendLetter() {
+        var area = shell.querySelector("[data-letter]");
+        var id = shell.getAttribute("data-current") || "";
+        if (!area || !id) return;
+        var text = area.value;
+        if (!text.replace(/^\s+|\s+$/g, "")) return;
+        post("/api/send", {id: id, text: text}).then(function (res) {
+          if (!res) return;
+          if (res.ok) area.value = "";
+          if (res.state) render(res.state);
+        }, function () {});
+      }
+      function openPaste() {
+        var field = shell.querySelector("[data-paste-id]");
+        if (!field) return;
+        var raw = field.value;
+        if (!raw.replace(/\s+/g, "")) return;
+        post("/api/open", {id: raw}).then(function (res) {
+          if (!res || !res.ok) return;
+          field.value = "";
+          closePaste();
+          shell.setAttribute("data-pane", "thread");
+          if (res.state) render(res.state);
+        }, function () {});
+      }
+      function copyId() {
+        var node = shell.querySelector("[data-id-text]");
+        var cue = shell.querySelector("[data-copied]");
+        if (!node || !cue) return;
+        var text = node.textContent.replace(/\s+/g, "");
+        if (!text) return;
+        flash += 1;
+        var gen = flash;
+        cue.textContent = "copied id";
+        cue.removeAttribute("hidden");
+        setTimeout(function () {
+          if (flash === gen) cue.setAttribute("hidden", "");
+        }, 1400);
+        copyText(text);
+      }
+      function poll() {
+        get("/api/state").then(render, function () {});
+      }
+      root.addEventListener("focusout", function (e) {
+        if (!e.target || !e.target.matches || !e.target.matches("[data-you-name]")) return;
+        if (e.target.hasAttribute("readonly")) return;
+        saveName();
+      });
+      root.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" || e.shiftKey) return;
+        if (e.target.matches("[data-you-name]")) {
+          e.preventDefault();
+          saveName();
+          return;
+        }
+        if (e.target.matches("[data-paste-id]")) {
+          e.preventDefault();
+          openPaste();
+          return;
+        }
+        if (!e.target.matches("[data-letter]")) return;
+        e.preventDefault();
+        sendLetter();
+      });
+      root.addEventListener("change", function (e) {
+        if (!e.target) return;
+        if (e.target.matches("[data-theme]")) {
+          post("/api/theme", {theme: e.target.value}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+          return;
+        }
+        if (e.target.matches("[data-keep]")) {
+          var id = shell.getAttribute("data-current") || "";
+          if (!id) return;
+          post("/api/record", {id: id, keep: e.target.value}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+        }
+      });
+      root.addEventListener("click", function (e) {
+        var btn = e.target.closest ? e.target.closest("button") : null;
+        if (!btn || !root.contains(btn)) return;
+        if (btn.hasAttribute("data-gear")) {
+          var settings = shell.querySelector("[data-settings]");
+          var chats = shell.querySelector(".chats-pane");
+          var open = settings && settings.hasAttribute("hidden");
+          if (open) {
+            settings.removeAttribute("hidden");
+            if (chats) chats.setAttribute("hidden", "");
+            btn.setAttribute("aria-expanded", "true");
+          } else {
+            if (settings) settings.setAttribute("hidden", "");
+            if (chats) chats.removeAttribute("hidden");
+            btn.setAttribute("aria-expanded", "false");
+          }
+          return;
+        }
+        if (btn.hasAttribute("data-rename")) {
+          var nameEntry = shell.querySelector("[data-you-name]");
+          if (!nameEntry) return;
+          nameEntry.removeAttribute("readonly");
+          nameEntry.size = Math.max(nameEntry.value.length, 16);
+          nameEntry.focus();
+          if (nameEntry.select) nameEntry.select();
+          return;
+        }
+        if (btn.hasAttribute("data-update")) {
+          var on = btn.getAttribute("aria-pressed") !== "true";
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+          post("/api/update", {on: on}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+          return;
+        }
+        if (btn.hasAttribute("data-tpm")) {
+          var pop = shell.querySelector("[data-tpm-pop]");
+          if (pop) pop.removeAttribute("hidden");
+          return;
+        }
+        if (btn.hasAttribute("data-tpm-ok")) {
+          var popOk = shell.querySelector("[data-tpm-pop]");
+          if (popOk) popOk.setAttribute("hidden", "");
+          return;
+        }
+        if (btn.hasAttribute("data-refresh")) {
+          var net = shell.querySelector("[data-net]");
+          if (net) net.textContent = "looking up network…";
+          post("/api/refresh", {}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+          return;
+        }
+        if (btn.hasAttribute("data-setup")) {
+          if (busy) return;
+          busy = true;
+          post("/api/setup", {}).then(function (res) {
+            busy = false;
+            if (res && res.state) render(res.state);
+          }, function () { busy = false; });
+          return;
+        }
+        if (btn.hasAttribute("data-show-paste")) {
+          var panel = shell.querySelector("[data-paste]");
+          var opening = panel.hasAttribute("hidden");
+          if (opening) panel.removeAttribute("hidden");
+          else panel.setAttribute("hidden", "");
+          btn.textContent = opening ? "−" : "+";
+          btn.setAttribute("aria-label", opening ? "Close" : "Paste an ID");
+          btn.setAttribute("aria-expanded", opening ? "true" : "false");
+          if (opening) {
+            var field = panel.querySelector("[data-paste-id]");
+            if (field) field.focus();
+          }
+          return;
+        }
+        if (btn.hasAttribute("data-back")) { shell.setAttribute("data-pane", "list"); return; }
+        if (btn.hasAttribute("data-copy")) { copyId(); return; }
+        if (btn.hasAttribute("data-open")) { openPaste(); return; }
+        if (btn.hasAttribute("data-remove")) {
+          var rid = shell.getAttribute("data-current") || "";
+          if (!rid) return;
+          post("/api/remove", {id: rid}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+          return;
+        }
+        if (btn.hasAttribute("data-accept")) {
+          var current = shell.getAttribute("data-current") || "";
+          if (!current) return;
+          post("/api/accept", {id: current}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+          return;
+        }
+        if (btn.hasAttribute("data-send")) { sendLetter(); return; }
+        if (btn.hasAttribute("data-chat")) {
+          shell.setAttribute("data-pane", "thread");
+          post("/api/select", {id: btn.getAttribute("data-chat")}).then(function (res) {
+            if (res && res.state) render(res.state);
+          }, function () {});
+        }
+      });
+      poll();
+      setInterval(poll, 2000);
+    })();
+  </script>
+</body>
+</html>
