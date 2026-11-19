@@ -18,6 +18,7 @@ type stateJSON struct {
 	AutoUpdate bool       `json:"autoUpdate"`
 	Network     string     `json:"network"`
 	Mailbox     string     `json:"mailbox"`
+	Direct      bool       `json:"direct"`
 	MailboxAddr string     `json:"mailboxAddr,omitempty"`
 	MailboxKey  string     `json:"mailboxKey,omitempty"`
 	Open       string     `json:"open"`

@@ -1,5 +1,5 @@
-// Package app is the glyph window: one key, local transcripts, and a mailbox
-// on this LAN. The mailbox sees ciphertext only.
+// Package app is the glyph window: one key, local transcripts, and a direct
+// connection to a glyph ID you were given. Letters stay sealed to that ID.
 package app
 
 import (
@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"glyph/client"
+	"glyph/direct"
 	"glyph/identity"
 	"glyph/seal"
 	"glyph/transcript"
@@ -37,6 +38,9 @@ type App struct {
 	store      *transcript.Store
 	prefs      prefs
 	client     *client.Client
+	node       *direct.Node
+	blocked    map[string]struct{}
+	sendMu     sync.Mutex
 	open       string
 	token      string
 	network    string
@@ -53,8 +57,9 @@ type prefs struct {
 	Name       string `json:"name"`
 	Theme      string `json:"theme"`
 	AutoUpdate bool   `json:"auto_update"`
-	Mailbox    string `json:"mailbox,omitempty"`
-	MailboxKey string `json:"mailbox_key,omitempty"`
+	Mailbox    string   `json:"mailbox,omitempty"`
+	MailboxKey string   `json:"mailbox_key,omitempty"`
+	Blocked    []string `json:"blocked,omitempty"`
 }
 
 // DefaultHome is the per-user directory. GLYPH_HOME overrides it.
@@ -96,6 +101,11 @@ func Open(home string) (*App, error) {
 	if err := a.loadPrefs(); err != nil {
 		return nil, err
 	}
+	node, err := direct.Listen(id, a.friendIDs, a.take)
+	if err != nil {
+		return nil, err
+	}
+	a.node = node
 	return a, nil
 }
 
@@ -107,13 +117,20 @@ func (a *App) Close() error {
 	}
 	a.mu.Lock()
 	c := a.client
+	n := a.node
 	srv := a.srv
 	a.client = nil
+	a.node = nil
 	a.srv = nil
 	a.mu.Unlock()
 	var err error
+	if n != nil {
+		err = n.Close()
+	}
 	if c != nil {
-		err = c.Close()
+		if err2 := c.Close(); err == nil {
+			err = err2
+		}
 	}
 	if srv != nil {
 		if err2 := srv.Close(); err == nil {
@@ -140,16 +157,13 @@ func (a *App) OpenChat(raw string) bool {
 			return false
 		}
 	}
-	if a.client != nil {
-		_ = a.client.Introduce(id)
-	}
 	a.open = id
 	return true
 }
 
-// Send seals text to peer and hands it to the mailbox.
-// Nothing is stored or cleared for the caller when the mailbox is offline,
-// the peer is unknown, or the letter is rejected.
+// Send seals text to peer and hands it directly to that glyph ID.
+// The letter is kept only after that peer accepts it. An unknown peer, a
+// peer who is not on this network, or a removed peer leaves the text unsent.
 func (a *App) Send(peer, text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -159,16 +173,47 @@ func (a *App) Send(peer, text string) bool {
 	if err != nil {
 		return false
 	}
+	a.sendMu.Lock()
+	defer a.sendMu.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.client == nil && !a.onlineLocked() {
+	if a.node == nil {
+		a.mu.Unlock()
+		return false
+	}
+	if _, blocked := a.blocked[id]; blocked {
+		a.mu.Unlock()
 		return false
 	}
 	if _, err := a.store.Conversation(id); err != nil {
+		a.mu.Unlock()
 		return false
 	}
-	_ = a.client.Introduce(id)
-	if err := a.client.Send(id, text, time.Now().Unix()); err != nil {
+	n, err := a.store.NextCounter(id)
+	if err != nil {
+		a.mu.Unlock()
+		return false
+	}
+	blob, err := seal.Seal(a.id.Private(), id, seal.Message{
+		Kind: seal.KindChat, Counter: n, Unix: time.Now().Unix(), Text: text,
+	})
+	if err != nil {
+		a.mu.Unlock()
+		return false
+	}
+	node := a.node
+	a.mu.Unlock()
+	if err := node.Deliver(id, blob); err != nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, blocked := a.blocked[id]; blocked {
+		return false
+	}
+	if err := a.store.CommitOutgoing(seal.Message{
+		Sender: a.id.ID(), Recipient: id, Kind: seal.KindChat,
+		Counter: n, Unix: time.Now().Unix(), Text: text,
+	}); err != nil {
 		return false
 	}
 	a.open = id
@@ -222,7 +267,7 @@ func (a *App) SetAutoUpdate(on bool) bool {
 	return true
 }
 
-// RemoveFriend drops peer from this owner's mailbox. The local transcript stays.
+// RemoveFriend stops accepting peer. The local transcript stays.
 func (a *App) RemoveFriend(peer string) bool {
 	id, err := normalizeID(peer)
 	if err != nil {
@@ -230,10 +275,58 @@ func (a *App) RemoveFriend(peer string) bool {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.client == nil {
+	if _, err := a.store.Conversation(id); err != nil {
 		return false
 	}
-	return a.client.Remove(id) == nil
+	if a.blocked == nil {
+		a.blocked = map[string]struct{}{}
+	}
+	a.blocked[id] = struct{}{}
+	a.prefs.Blocked = a.blockedIDsLocked()
+	if err := a.savePrefs(); err != nil {
+		delete(a.blocked, id)
+		a.prefs.Blocked = a.blockedIDsLocked()
+		return false
+	}
+	return true
+}
+
+func (a *App) friendIDs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	sums, err := a.store.List()
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(sums))
+	for _, sum := range sums {
+		if _, blocked := a.blocked[sum.ID]; blocked {
+			continue
+		}
+		out = append(out, sum.ID)
+	}
+	return out
+}
+
+func (a *App) blockedIDsLocked() []string {
+	out := make([]string, 0, len(a.blocked))
+	for id := range a.blocked {
+		out = append(out, id)
+	}
+	return out
+}
+
+func (a *App) take(peer string, blob []byte) {
+	msg, err := seal.Open(a.id.Private(), blob)
+	if err != nil || msg.Sender != peer {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, blocked := a.blocked[peer]; blocked {
+		return
+	}
+	_ = a.store.Ingest(msg)
 }
 
 // AcceptSuccessor follows a pending successor for this conversation.
@@ -357,6 +450,7 @@ func (a *App) snapshotLocked() stateJSON {
 		AutoUpdate:  a.prefs.AutoUpdate,
 		Network:     a.network,
 		Mailbox:     mail,
+		Direct:      a.node != nil,
 		MailboxAddr: box,
 		MailboxKey:  boxKey,
 		Open:        open,
@@ -523,6 +617,17 @@ func (a *App) loadPrefs() error {
 			return err
 		}
 		a.prefs.Mailbox = p.Mailbox
+	}
+	if len(p.Blocked) > 0 {
+		a.blocked = map[string]struct{}{}
+		for _, id := range p.Blocked {
+			canon, err := normalizeID(id)
+			if err != nil {
+				return err
+			}
+			a.blocked[canon] = struct{}{}
+		}
+		a.prefs.Blocked = a.blockedIDsLocked()
 	}
 	return nil
 }

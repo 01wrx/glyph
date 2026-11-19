@@ -2,7 +2,7 @@
 
 glyph is a window for two people who already have each other's glyph ID. The ID is the public half of a key made on that machine. It is not registered anywhere. A short prefix of it is not an address.
 
-A mailbox on the owner's LAN holds sealed letters while an app is closed. The mailbox never reads them.
+Both apps have to be open on the same network. Each one announces a private address, signed so that only someone who was given the glyph ID can recognize it. The announcement does not contain the ID. The connection is TLS 1.3 pinned to that ID, and the letter inside is sealed to it. A person who was not added cannot connect, and the network cannot read the letter.
 
 ![glyph](docs/app.png)
 
@@ -23,13 +23,13 @@ The key, transcripts, and preferences live under `%AppData%\glyph`. `GLYPH_HOME`
 
 **you are** is the name on this machine. Clicking it copies the full glyph ID.
 
-**+** takes a glyph ID you were given. The whole ID is required. A letter is sealed to that ID and handed to the mailbox as ciphertext.
+**+** takes a glyph ID you were given. The whole ID is required. A letter is sealed to that ID and handed directly to that person's app.
 
 The open chat shows letters in counter order, one sequence per sender. The time on a letter is the sender's clock, shown for reading. The app holds a letter until the next counter arrives.
 
-**remove** drops that friend from the owner's mailbox. The transcript on this machine stays. **keep** is how long this machine retains the letters: until you change it, 1 day, 7 days, 30 days, or off.
+**remove** stops accepting that glyph ID. The transcript on this machine stays. **keep** is how long this machine retains the letters: until you change it, 1 day, 7 days, 30 days, or off.
 
-Settings holds the display name, the full glyph ID, this machine's private LAN address, the theme, and mailbox setup. Setup starts the mailbox for this glyph ID when nothing on this machine is already speaking the mailbox protocol.
+Settings holds the display name, the full glyph ID, this machine's private LAN address, and the theme.
 
 ## Identity
 
@@ -41,17 +41,13 @@ A display name is a private label on this machine. It is never an address and ne
 
 ## Letters
 
-A letter is signed by the sender and sealed to the recipient's glyph ID. The mailbox stores the ciphertext. The connection to the mailbox is TLS 1.3, pinned to that mailbox's key.
+A letter is signed by the sender and sealed to the recipient's glyph ID. It is carried over a connection that both sides pin to those keys. The letter is not stored on a server.
 
 ## Mailbox
 
-The mailbox is [glyph-mailbox](https://github.com/01wrx/glyph-mailbox). It listens on the LAN only. It accepts the owner, and friends the owner has introduced by full glyph ID.
+The window does not use a mailbox. Two open apps on the same network deliver letters directly.
 
-The owner's app reads the mailbox public key from the mailbox directory. After setup, the window shows that address and key. The other person joins with those instead of starting a second mailbox. A friend who is not on that LAN cannot reach the box. `GLYPH_MAILBOX` and `GLYPH_MAILBOX_KEY` choose the same box from outside the window.
-
-Either person can close glyph. Letters wait on the mailbox until an app on that LAN picks them up.
-
-glyph can run the mailbox itself:
+[glyph-mailbox](https://github.com/01wrx/glyph-mailbox) is a separate LAN box for sealed letters. It is not required to send. glyph can still run that box:
 
 ```powershell
 .\glyph.exe mailbox -dir C:\mailbox-data -owner glyph:... -addr 192.168.1.20:7420

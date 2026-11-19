@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"glyph/identity"
 
@@ -52,47 +52,23 @@ func TestNormalizeAcceptsFullIDOnly(t *testing.T) {
 func TestExchangeAndQuietFailures(t *testing.T) {
 	owner := openTestApp(t)
 	friend := openTestApp(t)
-	addr := freeAddr(t)
-	owner.candidates = []string{addr}
-	owner.bindAddr = addr
-	owner.host = inprocHost(t)
-
-	if !owner.Setup() {
-		t.Fatal("owner setup")
+	if !owner.pullState().Direct || friend.node == nil {
+		t.Fatal("direct listener did not start")
 	}
-	if owner.pullState().Mailbox != "online" {
-		t.Fatal("owner lamp")
-	}
-	friend.candidates = []string{addr}
-	friend.bindAddr = addr
-	started := false
-	friend.host = func(string, string, string) error {
-		started = true
-		return nil
-	}
-	if friend.Setup() || started {
-		t.Fatal("friend started or joined a mailbox before being introduced")
-	}
-
-	pub, err := mbox.LoadPub(filepath.Join(owner.home, "mailbox"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	friend.pins = map[string]ed25519.PublicKey{addr: pub}
 	if !owner.OpenChat(friend.id.ID()) {
 		t.Fatal("open friend")
 	}
 	if owner.OpenChat("glyph:abcd") || owner.OpenChat(owner.id.ID()) {
 		t.Fatal("bad id opened a chat")
 	}
-	friend.mu.Lock()
-	ok := friend.onlineLocked()
-	friend.mu.Unlock()
-	if !ok || friend.pullState().Mailbox != "online" {
-		t.Fatal("friend did not come online after introduction")
-	}
 	if !friend.OpenChat(strings.ToUpper(strings.TrimPrefix(owner.id.ID(), "glyph:"))) {
 		t.Fatal("friend open")
+	}
+	if owner.Send(friend.id.ID(), "too-soon") {
+		t.Fatal("sent before the friend was on the network")
+	}
+	if !friend.node.AcceptBeacon(owner.node.Beacon()) || !owner.node.AcceptBeacon(friend.node.Beacon()) {
+		t.Fatal("announcement was not recognized")
 	}
 
 	const marker = "glyph-window-marker-9f3a2c"
@@ -102,14 +78,23 @@ func TestExchangeAndQuietFailures(t *testing.T) {
 	if owner.Send(friend.id.ID(), "   ") {
 		t.Fatal("blank send")
 	}
-	friend.mu.Lock()
-	friend.touchLocked()
-	friend.mu.Unlock()
 	view := friend.pullState()
 	if len(view.Chats) != 1 || len(view.Chats[0].Messages) != 1 || view.Chats[0].Messages[0].Text != marker || view.Chats[0].Messages[0].Out {
 		t.Fatalf("friend view %#v", view.Chats)
 	}
-	if err := walkContains(filepath.Join(owner.home, "mailbox"), []byte(marker)); err != nil {
+	if err := filepath.Walk(owner.home, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || strings.Contains(path, "transcript") {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(b, []byte(marker)) {
+			return os.ErrExist
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,42 +134,24 @@ func TestExchangeAndQuietFailures(t *testing.T) {
 	}
 }
 
-func TestJoinSharedMailbox(t *testing.T) {
+func TestForgedAnnouncementDoesNotDeliver(t *testing.T) {
 	owner := openTestApp(t)
 	friend := openTestApp(t)
-	addr := freeAddr(t)
-	owner.candidates = []string{addr}
-	owner.bindAddr = addr
-	owner.host = inprocHost(t)
-	if !owner.Setup() {
-		t.Fatal("owner setup")
+	stranger := openTestApp(t)
+	if !owner.OpenChat(friend.id.ID()) || !friend.OpenChat(owner.id.ID()) || !stranger.OpenChat(owner.id.ID()) {
+		t.Fatal("open")
 	}
-	shared := owner.pullState()
-	if shared.MailboxAddr == "" || shared.MailboxKey == "" {
-		t.Fatal("owner did not show the mailbox address and key")
+	if owner.node.AcceptBeacon(stranger.node.Beacon()) {
+		t.Fatal("a glyph ID that was not added was recognized")
 	}
-	if !owner.OpenChat(friend.id.ID()) {
-		t.Fatal("introduce")
+	if !stranger.node.AcceptBeacon(owner.node.Beacon()) {
+		t.Fatal("stranger could not recognize an ID they added")
 	}
-	friend.candidates = []string{shared.MailboxAddr}
-	if !friend.Join(shared.MailboxAddr, shared.MailboxKey) {
-		t.Fatal("friend join")
+	if stranger.Send(owner.id.ID(), "intruder") {
+		t.Fatal("stranger delivered a letter")
 	}
-	if !friend.OpenChat(owner.id.ID()) {
-		t.Fatal("friend chat")
-	}
-	if !owner.Send(friend.id.ID(), "through-shared-box") {
-		t.Fatal("send")
-	}
-	friend.mu.Lock()
-	friend.touchLocked()
-	friend.mu.Unlock()
-	got := friend.pullState()
-	if len(got.Chats) != 1 || len(got.Chats[0].Messages) != 1 || got.Chats[0].Messages[0].Text != "through-shared-box" {
-		t.Fatalf("friend view %#v", got.Chats)
-	}
-	if friend.Join("8.8.8.8:7420", shared.MailboxKey) {
-		t.Fatal("public mailbox was joined")
+	if len(owner.pullState().Chats) != 1 || len(owner.pullState().Chats[0].Messages) != 0 {
+		t.Fatal("owner stored a stranger's letter")
 	}
 }
 
@@ -254,7 +221,7 @@ func TestWindowPage(t *testing.T) {
 		t.Fatalf("page %d", res.StatusCode)
 	}
 	page := string(body)
-	for _, want := range []string{"you are:", "enter glyph...", ">setup<", "auto update from GitHub", "no tpm implementation"} {
+	for _, want := range []string{"you are:", "enter glyph...", "they are not on this network", "auto update from GitHub", "no tpm implementation"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("page missing %q", want)
 		}
@@ -308,6 +275,9 @@ func openTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { a.Close() })
 	a.candidates = []string{}
+	if a.node != nil {
+		a.node.SetFind(30 * time.Millisecond)
+	}
 	return a
 }
 
