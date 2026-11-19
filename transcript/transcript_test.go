@@ -667,6 +667,148 @@ func TestDamagedHoldOpensTheRestOfTheStore(t *testing.T) {
 	}
 }
 
+func TestSuccessorIDCannotAlsoBeAChat(t *testing.T) {
+	self := mustID(t)
+	alice := mustID(t)
+	carol := mustID(t)
+	k := mustID(t)
+	s := mustStore(t, self)
+	if err := s.Add(alice.ID(), "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(carol.ID(), "Carol"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Ingest(succ(t, alice, self, k, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(k.ID(), ""); !errors.Is(err, ErrSuccessor) {
+		t.Fatalf("add of pending id err=%v", err)
+	}
+	if _, err := s.Conversation(k.ID()); !errors.Is(err, ErrNotFound) {
+		t.Fatal("pending id became a chat")
+	}
+	if err := s.Ingest(succ(t, carol, self, k, 1, 1)); !errors.Is(err, ErrSuccessor) {
+		t.Fatalf("second claim err=%v", err)
+	}
+	carolView := mustView(t, s, carol.ID())
+	if carolView.Pending != "" || len(carolView.Messages) != 0 {
+		t.Fatalf("carol changed %+v", carolView)
+	}
+	if _, err := s.Accept(alice.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Conversation(alice.ID()); !errors.Is(err, ErrNotFound) {
+		t.Fatal("alice did not follow the new id")
+	}
+	if _, err := s.Conversation(k.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(s.dir, self.ID()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPendingIDAlreadyAChatStillOpens(t *testing.T) {
+	self := mustID(t)
+	alice := mustID(t)
+	k := mustID(t)
+	s := mustStore(t, self)
+	if err := s.Add(alice.ID(), "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Ingest(chat(alice.ID(), self.ID(), 1, 1, "kept")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Ingest(succ(t, alice, self, k, 2, 1)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(s.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disk diskFile
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatal(err)
+	}
+	disk.Convs = append(disk.Convs, diskConv{Peer: k.ID(), SelfNext: 1, PeerNext: 1})
+	out, err := json.MarshalIndent(disk, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.path(), append(out, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.dir, self.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceView := mustView(t, reopened, alice.ID())
+	if aliceView.Pending != "" || len(aliceView.Messages) != 2 || aliceView.Messages[0].Text != "kept" {
+		t.Fatalf("alice %+v", aliceView)
+	}
+	if _, err := reopened.Conversation(k.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(reopened.dir, self.ID()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTwoFollowsOfOneIDStillOpen(t *testing.T) {
+	self := mustID(t)
+	alice := mustID(t)
+	carol := mustID(t)
+	k := mustID(t)
+	s := mustStore(t, self)
+	if err := s.Add(alice.ID(), "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(carol.ID(), "Carol"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(s.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disk diskFile
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatal(err)
+	}
+	for i := range disk.Convs {
+		disk.Convs[i].PendingNext = k.ID()
+		disk.Convs[i].Follow = true
+	}
+	out, err := json.MarshalIndent(disk, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.path(), append(out, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.dir, self.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	winner, loser := alice.ID(), carol.ID()
+	if carol.ID() < alice.ID() {
+		winner, loser = loser, winner
+	}
+	if _, err := reopened.Conversation(winner); !errors.Is(err, ErrNotFound) {
+		t.Fatal("followed chat stayed on the old id")
+	}
+	if _, err := reopened.Conversation(k.ID()); err != nil {
+		t.Fatal(err)
+	}
+	loserView := mustView(t, reopened, loser)
+	if loserView.Pending != "" {
+		t.Fatalf("other follow still pending %+v", loserView)
+	}
+	if _, err := Open(reopened.dir, self.ID()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func succ(t *testing.T, sender, recipient, next *identity.Identity, n uint64, unix int64) seal.Message {
 	t.Helper()
 	sig, err := seal.SignSuccessor(next.Private(), sender.ID(), recipient.ID(), next.ID())

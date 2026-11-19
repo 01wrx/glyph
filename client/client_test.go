@@ -302,6 +302,126 @@ func TestConflictingSuccessorDoesNotBrick(t *testing.T) {
 	}
 }
 
+func TestLetterArrivesBeforeChat(t *testing.T) {
+	_, addr, alice, bob, pin := mailboxWithFriend(t)
+	aliceStore := mustStore(t, alice)
+	bobStore := mustStore(t, bob)
+	if err := aliceStore.Add(bob.ID(), "Bob"); err != nil {
+		t.Fatal(err)
+	}
+	aliceC := mustDial(t, addr, alice, aliceStore, pin)
+	defer aliceC.Close()
+	bobC := mustDial(t, addr, bob, bobStore, pin)
+	defer bobC.Close()
+	if err := aliceC.Send(bob.ID(), "hello-before-add", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobC.Pull(); err != nil {
+		t.Fatal(err)
+	}
+	left, err := rawList(addr, bob, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("letter dropped before the chat existed: %#v", left)
+	}
+	if err := bobStore.Add(alice.ID(), "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobC.Pull(); err != nil {
+		t.Fatal(err)
+	}
+	view, err := bobStore.Conversation(alice.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Messages) != 1 || view.Messages[0].Text != "hello-before-add" {
+		t.Fatalf("opened %#v", view.Messages)
+	}
+	left, err = rawList(addr, bob, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("letter stayed after the chat existed: %#v", left)
+	}
+}
+
+func TestNewKeyLetterWaitsForAccept(t *testing.T) {
+	_, addr, alice, bob, pin := mailboxWithFriend(t)
+	aliceStore := mustStore(t, alice)
+	bobStore := mustStore(t, bob)
+	if err := aliceStore.Add(bob.ID(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobStore.Add(alice.ID(), ""); err != nil {
+		t.Fatal(err)
+	}
+	aliceC := mustDial(t, addr, alice, aliceStore, pin)
+	defer aliceC.Close()
+	bobC := mustDial(t, addr, bob, bobStore, pin)
+	defer bobC.Close()
+	next := mustID(t)
+	if err := aliceC.SendSuccessor(bob.ID(), next, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobC.Pull(); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceC.Introduce(next.ID()); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := seal.Seal(next.Private(), bob.ID(), seal.Message{
+		Kind: seal.KindChat, Counter: 1, Unix: 2, Text: "from-new-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := mbox.Dial(addr, next.Private(), pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Put(bob.ID(), blob); err != nil {
+		box.Close()
+		t.Fatal(err)
+	}
+	box.Close()
+	if err := bobC.Pull(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bobStore.Conversation(next.ID()); !errors.Is(err, transcript.ErrNotFound) {
+		t.Fatal("followed the new id before accept")
+	}
+	left, err := rawList(addr, bob, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("early letter dropped: %#v", left)
+	}
+	if _, err := bobStore.Accept(alice.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobC.Pull(); err != nil {
+		t.Fatal(err)
+	}
+	view, err := bobStore.Conversation(next.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Messages) != 2 || view.Messages[1].Text != "from-new-key" {
+		t.Fatalf("new key letter %+v", view.Messages)
+	}
+	left, err = rawList(addr, bob, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("letter stayed after accept: %#v", left)
+	}
+}
+
 func mailboxWithFriend(t *testing.T) (dir, addr string, owner, friend *identity.Identity, pin ed25519.PublicKey) {
 	t.Helper()
 	owner = mustID(t)

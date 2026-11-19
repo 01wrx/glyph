@@ -136,6 +136,8 @@ func (s *Store) Self() string { return s.self }
 
 // Add starts a conversation with a glyph ID that was handed to us.
 // name is a local label and may be empty. It is not an address.
+// An ID that a chat already named as its successor is rejected. That chat
+// follows the ID by accepting it.
 func (s *Store) Add(peerID, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -148,6 +150,9 @@ func (s *Store) Add(peerID, name string) error {
 	}
 	if _, ok := s.conv[peer]; ok {
 		return ErrInvalid
+	}
+	if s.nextTaken(peer, nil) {
+		return ErrSuccessor
 	}
 	if err := checkName(name); err != nil {
 		return err
@@ -426,10 +431,7 @@ func (s *Store) Skip(msg seal.Message) error {
 		return ErrInvalid
 	}
 	c.PeerNext++
-	exists := func(id string) bool {
-		_, ok := s.conv[id]
-		return ok
-	}
+	exists := func(id string) bool { return s.nextTaken(id, c) }
 	if _, err := c.drainHeld(s.self, exists, s.clock().Unix()); err != nil {
 		s.conv = snap
 		return err
@@ -472,10 +474,7 @@ func (s *Store) Ingest(msg seal.Message) error {
 		return ErrStranger
 	}
 	snap := s.snapshot()
-	exists := func(id string) bool {
-		_, ok := s.conv[id]
-		return ok
-	}
+	exists := func(id string) bool { return s.nextTaken(id, c) }
 	next, err := c.apply(msg, s.self, exists, s.clock().Unix())
 	if err != nil {
 		s.conv = snap
@@ -639,6 +638,14 @@ func (s *Store) rekey(c *conv, next string) error {
 	if err := validateSuccessor(next, s.self, c.Peer, exists); err != nil {
 		return err
 	}
+	// This chat takes next. Another chat that named the same next ID keeps
+	// its history and drops the pending follow, so the file stays openable.
+	for _, other := range s.conv {
+		if other != c && other.PendingNext == next {
+			other.PendingNext = ""
+			other.Follow = false
+		}
+	}
 	old := c.Peer
 	delete(s.conv, old)
 	c.Peer = next
@@ -648,6 +655,23 @@ func (s *Store) rekey(c *conv, next string) error {
 	c.Follow = false
 	s.conv[next] = c
 	return nil
+}
+
+// nextTaken reports whether id is already a chat, or another chat has named
+// it as a successor. except may keep its own pending claim.
+func (s *Store) nextTaken(id string, except *conv) bool {
+	if _, ok := s.conv[id]; ok {
+		return true
+	}
+	for _, c := range s.conv {
+		if c == except {
+			continue
+		}
+		if c.PendingNext == id {
+			return true
+		}
+	}
+	return false
 }
 
 func validateSuccessor(next, self, peer string, exists func(string) bool) error {
@@ -800,10 +824,6 @@ func (s *Store) load() error {
 // A held letter behind that counter is dropped. The letter at that counter is
 // delivered, or consumed when it is a successor this chat cannot follow.
 func (s *Store) repairHeld() (bool, error) {
-	exists := func(id string) bool {
-		_, ok := s.conv[id]
-		return ok
-	}
 	kept := s.clock().Unix()
 	changed := false
 	for _, c := range s.conv {
@@ -813,6 +833,7 @@ func (s *Store) repairHeld() (bool, error) {
 				changed = true
 			}
 		}
+		exists := func(id string) bool { return s.nextTaken(id, c) }
 		drained, err := c.drainHeld(s.self, exists, kept)
 		if err != nil {
 			return false, err
@@ -831,12 +852,22 @@ func (s *Store) finishFollow() (bool, error) {
 			ready = append(ready, c)
 		}
 	}
+	sort.Slice(ready, func(i, j int) bool { return ready[i].Peer < ready[j].Peer })
+	changed := false
 	for _, c := range ready {
-		if err := s.rekey(c, c.PendingNext); err != nil {
-			return false, err
+		if c.PendingNext == "" || !c.Follow {
+			continue
 		}
+		if err := s.rekey(c, c.PendingNext); err != nil {
+			// One chat already took this ID. Drop the follow and keep the store.
+			c.PendingNext = ""
+			c.Follow = false
+			changed = true
+			continue
+		}
+		changed = true
 	}
-	return len(ready) > 0, nil
+	return changed, nil
 }
 
 type diskFile struct {
@@ -1008,11 +1039,17 @@ func (s *Store) parseDisk(raw []byte) (map[string]*conv, bool, error) {
 		out[peer] = c
 	}
 	for _, c := range out {
-		if c.PendingNext != "" {
-			if _, ok := out[c.PendingNext]; ok {
-				return nil, false, ErrInvalid
-			}
+		if c.PendingNext == "" {
+			continue
 		}
+		if _, ok := out[c.PendingNext]; !ok {
+			continue
+		}
+		// The next ID is already a chat. Drop the pending follow so this
+		// file still opens, and keep both histories.
+		c.PendingNext = ""
+		c.Follow = false
+		stripped = true
 	}
 	return out, stripped, nil
 }

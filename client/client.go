@@ -122,9 +122,11 @@ func (c *Client) SendSuccessor(peer string, next *identity.Identity, unix int64)
 }
 
 // Pull walks each page of this ID's blobs. An opened letter is acknowledged,
-// including a duplicate counter. A blob that cannot open, or a permanent
-// reject of the peer's next counter, is dropped. A later counter that the
-// transcript is not ready for stays on the mailbox.
+// including a duplicate counter. A blob that cannot open, a letter for
+// someone else, or a permanent reject of the peer's next counter is dropped.
+// A letter from a glyph ID that is not a chat yet stays on the mailbox until
+// that chat exists. A later counter that the transcript is not ready for
+// stays on the mailbox.
 func (c *Client) Pull() error {
 	after := ""
 	for {
@@ -147,7 +149,10 @@ func (c *Client) Pull() error {
 			switch {
 			case err == nil || errors.Is(err, transcript.ErrReplay):
 				ack = append(ack, lt.ID)
-			case errors.Is(err, transcript.ErrStranger) || errors.Is(err, transcript.ErrRecipient):
+			case errors.Is(err, transcript.ErrStranger):
+				// The sender is not a chat yet. The letter stays so it can be
+				// read after that glyph ID is added.
+			case errors.Is(err, transcript.ErrRecipient):
 				drop = append(drop, lt.ID)
 			case errors.Is(err, transcript.ErrSuccessor) || errors.Is(err, transcript.ErrInvalid):
 				if skipErr := c.store.Skip(msg); skipErr == nil {
