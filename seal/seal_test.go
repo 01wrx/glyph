@@ -49,6 +49,9 @@ func TestSealOpenChat(t *testing.T) {
 	if bytes.Contains(blob, []byte(text)) {
 		t.Fatal("plaintext is visible in the blob")
 	}
+	if bytes.Contains(blob[:headerLen], alice.Public()) || bytes.Contains(blob[:headerLen], bob.Public()) {
+		t.Fatal("glyph id is in the clear header")
+	}
 	got, err := Open(bob.Private(), blob)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +59,7 @@ func TestSealOpenChat(t *testing.T) {
 	if got.Sender != alice.ID() || got.Recipient != bob.ID() || got.Text != text || got.Counter != 1 || got.Unix != 99 || got.Kind != KindChat {
 		t.Fatalf("opened %#v", got)
 	}
-	if _, err := Open(alice.Private(), blob); !errors.Is(err, ErrRecipient) {
+	if _, err := Open(alice.Private(), blob); !errors.Is(err, ErrTruncated) {
 		t.Fatalf("sender opened the letter: %v", err)
 	}
 }
@@ -78,8 +81,8 @@ func TestSealOpenSuccessor(t *testing.T) {
 	if bytes.Contains(blob, []byte(next.ID())) {
 		t.Fatal("successor id is visible in the blob")
 	}
-	if bytes.Contains(blob[:65], next.Public()) {
-		t.Fatal("successor key is in the clear header")
+	if bytes.Contains(blob[:headerLen], next.Public()) || bytes.Contains(blob[:headerLen], alice.Public()) || bytes.Contains(blob[:headerLen], bob.Public()) {
+		t.Fatal("glyph id is in the clear header")
 	}
 	got, err := Open(bob.Private(), blob)
 	if err != nil {
@@ -139,21 +142,16 @@ func TestRejectSwappedRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	swapped := append([]byte(nil), blob...)
-	copy(swapped[33:65], carol.Public())
-	if _, err := Open(bob.Private(), swapped); !errors.Is(err, ErrRecipient) {
-		t.Fatalf("bob opened swapped letter: %v", err)
+	if bytes.Contains(blob[:headerLen], alice.Public()) || bytes.Contains(blob[:headerLen], bob.Public()) {
+		t.Fatal("glyph id is in the clear header")
 	}
-	if _, err := Open(carol.Private(), swapped); err == nil {
-		t.Fatal("carol opened a letter sealed to bob")
-	}
-	if _, err := Open(carol.Private(), blob); !errors.Is(err, ErrRecipient) {
+	if _, err := Open(carol.Private(), blob); !errors.Is(err, ErrTruncated) {
 		t.Fatalf("carol opened bob's letter: %v", err)
 	}
-	senderSwap := append([]byte(nil), blob...)
-	copy(senderSwap[1:33], carol.Public())
-	if _, err := Open(bob.Private(), senderSwap); err == nil {
-		t.Fatal("swapped sender was accepted")
+	mut := append([]byte(nil), blob...)
+	mut[1] ^= 0xff
+	if _, err := Open(bob.Private(), mut); err == nil {
+		t.Fatal("mutated ephemeral key was accepted")
 	}
 }
 

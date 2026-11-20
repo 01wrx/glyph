@@ -1,8 +1,8 @@
 # glyph
 
-glyph is a window for two people who already have each other's glyph ID. The ID is the public half of a key made on that machine. It is not registered anywhere. A short prefix of it is not an address.
+glyph is a window for two people who already have each other's glyph ID. The ID is the public half of a key made on that machine. It is not an account. A short prefix of it is not an address.
 
-The app is peer to peer over the internet. One machine listens, and the other dials it. The host and port are only where the connection goes. The glyph ID is who is on the other end. TLS 1.3 is pinned to that ID, and the letter is sealed to it. A person who was not added cannot connect. An address learned from the network is never dialed.
+The app is peer to peer over the internet. A running app signs the address it can currently be reached at. The other app, which already has the full glyph ID, checks that signature and sends. When the two machines cannot open a path, the sealed letter is handed across a relay. The relay cannot read the letter and cannot sign for either key. A person who was not added cannot send a letter this app will keep.
 
 The mailbox is the only part that stays on the LAN. The window does not need it to send.
 
@@ -25,13 +25,13 @@ The key, transcripts, and preferences live under `%AppData%\glyph`. `GLYPH_HOME`
 
 **you are** is the name on this machine. Clicking it copies the full glyph ID.
 
-**+** takes a glyph ID you were given, and the host:port where that app can be reached. The whole ID is required. A letter is sealed to that ID and handed directly to that app. Settings shows the port this app is listening on. Give the other person your public host and that port.
+**+** takes a glyph ID you were given. The whole ID is required. A letter is sealed to that ID and handed to the app that holds the matching key.
 
 The open chat shows letters in counter order, one sequence per sender. The time on a letter is the sender's clock, shown for reading. The app holds a letter until the next counter arrives.
 
 **remove** stops accepting that glyph ID. The transcript on this machine stays. **keep** is how long this machine retains the letters: until you change it, 1 day, 7 days, 30 days, or off.
 
-Settings holds the display name, the full glyph ID, this machine's private LAN address, and the theme.
+Settings holds the display name, the full glyph ID, the public network name, and the theme.
 
 ## Identity
 
@@ -43,7 +43,7 @@ A display name is a private label on this machine. It is never an address and ne
 
 ## Letters
 
-A letter is signed by the sender and sealed to the recipient's glyph ID. It is carried over a connection that both sides pin to those keys. The letter is not stored on a server.
+A letter is signed by the sender and sealed to the recipient's glyph ID. The packet that carries it is signed by that same key. It is not stored on a server.
 
 ## Mailbox
 

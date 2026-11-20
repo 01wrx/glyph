@@ -266,7 +266,6 @@
           <div data-paste hidden>
             <div class="gid-wrap">
               <input class="gid-input" data-paste-id autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Glyph ID" placeholder="glyph id">
-              <input class="gid-input" data-paste-reach autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Where to reach them" placeholder="host:port">
               <button type="button" class="gid-go" data-open aria-label="Open chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
             </div>
           </div>
@@ -283,8 +282,8 @@
           </div>
           <p class="set-k">identity</p>
           <p class="id-mono" data-id-full></p>
-          <p class="set-k">reachable at</p>
-          <p class="id-mono share-line" data-listen>port 7421</p>
+          <p class="set-k">announced</p>
+          <p class="id-mono share-line" data-listen>announcing</p>
           <p class="set-k">network</p>
           <div class="net-row">
             <p class="net" data-net>looking up network…</p>
@@ -502,7 +501,7 @@
         var net = shell.querySelector("[data-net]");
         if (net) net.textContent = state.network || "network unavailable";
         var listen = shell.querySelector("[data-listen]");
-        if (listen) listen.textContent = state.listen || "port 7421";
+        if (listen) listen.textContent = state.listen || "announcing";
         var share = shell.querySelector("[data-share]");
         if (share) {
           if (state.mailbox === "online" && state.mailboxAddr) share.removeAttribute("hidden");
@@ -572,12 +571,9 @@
         if (!field) return;
         var raw = field.value;
         if (!raw.replace(/\s+/g, "")) return;
-        var reachEl = shell.querySelector("[data-paste-reach]");
-        var reach = reachEl ? reachEl.value : "";
-        post("/api/open", {id: raw, reach: reach}).then(function (res) {
+        post("/api/open", {id: raw}).then(function (res) {
           if (!res || !res.ok) return;
           field.value = "";
-          if (reachEl) reachEl.value = "";
           closePaste();
           shell.setAttribute("data-pane", "thread");
           if (res.state) render(res.state);

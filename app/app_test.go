@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"glyph/identity"
+	"glyph/seal"
 
 	mbox "glyph-mailbox"
 )
@@ -25,6 +26,7 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("GLYPH_HOME")
 	os.Unsetenv("GLYPH_LISTEN")
 	os.Setenv("GLYPH_DIRECT", "127.0.0.1:0")
+	os.Setenv("GLYPH_FIND", "0")
 	os.Exit(m.Run())
 }
 
@@ -155,6 +157,47 @@ func TestForgedAnnouncementDoesNotDeliver(t *testing.T) {
 	}
 }
 
+func TestTakeDropsStranger(t *testing.T) {
+	owner := openTestApp(t)
+	friend, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.OpenChat(friend.ID()) {
+		t.Fatal("open friend")
+	}
+	stranger, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := seal.Seal(stranger.Private(), owner.id.ID(), seal.Message{
+		Kind: seal.KindChat, Counter: 1, Unix: 1, Text: "forced-chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.take(stranger.ID(), blob) {
+		t.Fatal("stranger was kept")
+	}
+	view := owner.pullState()
+	if len(view.Chats) != 1 || view.Chats[0].ID != friend.ID() || len(view.Chats[0].Messages) != 0 {
+		t.Fatalf("owner view %#v", view.Chats)
+	}
+	ok, err := seal.Seal(friend.Private(), owner.id.ID(), seal.Message{
+		Kind: seal.KindChat, Counter: 1, Unix: 1, Text: "from-friend",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.take(friend.ID(), ok) {
+		t.Fatal("friend was dropped")
+	}
+	view = owner.pullState()
+	if len(view.Chats) != 1 || len(view.Chats[0].Messages) != 1 || view.Chats[0].Messages[0].Text != "from-friend" {
+		t.Fatalf("friend view %#v", view.Chats)
+	}
+}
+
 func TestStaleMailboxStaysUnset(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -193,6 +236,32 @@ func TestStaleMailboxStaysUnset(t *testing.T) {
 	}
 }
 
+func TestLiveTwoApps(t *testing.T) {
+	if os.Getenv("GLYPH_LIVE") != "1" {
+		t.Skip()
+	}
+	os.Setenv("GLYPH_FIND", "")
+	os.Setenv("GLYPH_DIRECT", "")
+	os.Unsetenv("GLYPH_RELAY")
+	t.Cleanup(func() {
+		os.Setenv("GLYPH_FIND", "0")
+		os.Setenv("GLYPH_DIRECT", "127.0.0.1:0")
+	})
+	a := openTestApp(t)
+	b := openTestApp(t)
+	idB := b.pullState().ID
+	if !a.OpenChat(idB) {
+		t.Fatal("open")
+	}
+	if !a.Send(idB, "live-hello") {
+		t.Fatal("send")
+	}
+	view := b.pullState()
+	if len(view.Chats) != 1 || len(view.Chats[0].Messages) != 1 || view.Chats[0].Messages[0].Text != "live-hello" {
+		t.Fatalf("b view %#v", view.Chats)
+	}
+}
+
 func TestWindowPage(t *testing.T) {
 	a := openTestApp(t)
 	addr, err := a.Listen("127.0.0.1:0")
@@ -221,12 +290,12 @@ func TestWindowPage(t *testing.T) {
 		t.Fatalf("page %d", res.StatusCode)
 	}
 	page := string(body)
-	for _, want := range []string{"you are:", "glyph id", "host:port", "auto update from GitHub", "no tpm implementation"} {
+	for _, want := range []string{"you are:", "glyph id", "announced", "auto update from GitHub", "no tpm implementation"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("page missing %q", want)
 		}
 	}
-	for _, banned := range []string{"Mira", "Sam", "{{TOKEN}}", "https://", "http://"} {
+	for _, banned := range []string{"Mira", "Sam", "{{TOKEN}}", "https://", "http://", "host:port"} {
 		if strings.Contains(page, banned) {
 			t.Fatalf("page contains %q", banned)
 		}

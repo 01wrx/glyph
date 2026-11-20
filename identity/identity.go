@@ -1,5 +1,5 @@
 // Package identity is a static Ed25519 glyph ID. The ID is the public key.
-// It is not registered anywhere, and a short prefix of it is not an address.
+// It is not an account, and a short prefix of it is not an address.
 package identity
 
 import (

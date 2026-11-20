@@ -12,18 +12,18 @@ import (
 )
 
 type stateJSON struct {
-	Name       string     `json:"name"`
-	ID         string     `json:"id"`
-	Theme      string     `json:"theme"`
-	AutoUpdate bool       `json:"autoUpdate"`
+	Name        string     `json:"name"`
+	ID          string     `json:"id"`
+	Theme       string     `json:"theme"`
+	AutoUpdate  bool       `json:"autoUpdate"`
 	Network     string     `json:"network"`
 	Mailbox     string     `json:"mailbox"`
 	Direct      bool       `json:"direct"`
 	Listen      string     `json:"listen,omitempty"`
 	MailboxAddr string     `json:"mailboxAddr,omitempty"`
 	MailboxKey  string     `json:"mailboxKey,omitempty"`
-	Open       string     `json:"open"`
-	Chats      []chatJSON `json:"chats"`
+	Open        string     `json:"open"`
+	Chats       []chatJSON `json:"chats"`
 }
 
 type chatJSON struct {
@@ -218,7 +218,6 @@ func (a *App) serveBool(w http.ResponseWriter, r *http.Request, body any, fn fun
 
 func (a *App) pullState() stateJSON {
 	a.mu.Lock()
-	a.touchLocked()
 	st := a.snapshotLocked()
 	a.mu.Unlock()
 	return st

@@ -19,6 +19,7 @@ import (
 
 	"glyph/client"
 	"glyph/direct"
+	"glyph/discover"
 	"glyph/identity"
 	"glyph/seal"
 	"glyph/transcript"
@@ -39,11 +40,13 @@ type App struct {
 	prefs      prefs
 	client     *client.Client
 	node       *direct.Node
+	finder     *discover.Service
 	blocked    map[string]struct{}
 	sendMu     sync.Mutex
 	open       string
 	token      string
 	network    string
+	publicIP   string
 	fail       map[string]error
 	candidates []string
 	pins       map[string]ed25519.PublicKey
@@ -54,9 +57,9 @@ type App struct {
 }
 
 type prefs struct {
-	Name       string `json:"name"`
-	Theme      string `json:"theme"`
-	AutoUpdate bool   `json:"auto_update"`
+	Name       string   `json:"name"`
+	Theme      string   `json:"theme"`
+	AutoUpdate bool     `json:"auto_update"`
 	Mailbox    string   `json:"mailbox,omitempty"`
 	MailboxKey string   `json:"mailbox_key,omitempty"`
 	Blocked    []string `json:"blocked,omitempty"`
@@ -96,7 +99,7 @@ func Open(home string) (*App, error) {
 		store:   store,
 		prefs:   prefs{Name: "you", Theme: "dark"},
 		token:   newToken(),
-		network: networkLabel(),
+		network: "looking up network…",
 	}
 	if err := a.loadPrefs(); err != nil {
 		return nil, err
@@ -107,8 +110,18 @@ func Open(home string) (*App, error) {
 		return nil, err
 	}
 	a.node = node
+	go a.applyNetwork()
+	if strings.TrimSpace(os.Getenv("GLYPH_FIND")) != "0" {
+		if f, err := discover.Start(id, a.friendIDs, a.take, a.lanTCP, a.noteLAN); err == nil {
+			a.finder = f
+		}
+	}
 	if sums, err := a.store.List(); err == nil {
 		for _, sum := range sums {
+			_, blocked := a.blocked[sum.ID]
+			if a.finder != nil && !blocked {
+				a.finder.Watch(sum.ID)
+			}
 			reach, err := a.store.Reach(sum.ID)
 			if err == nil && reach != "" {
 				_ = a.node.SetReach(sum.ID, reach)
@@ -127,14 +140,21 @@ func (a *App) Close() error {
 	a.mu.Lock()
 	c := a.client
 	n := a.node
+	f := a.finder
 	srv := a.srv
 	a.client = nil
 	a.node = nil
+	a.finder = nil
 	a.srv = nil
 	a.mu.Unlock()
 	var err error
+	if f != nil {
+		err = f.Close()
+	}
 	if n != nil {
-		err = n.Close()
+		if err2 := n.Close(); err == nil {
+			err = err2
+		}
 	}
 	if c != nil {
 		if err2 := c.Close(); err == nil {
@@ -163,14 +183,15 @@ func (a *App) OpenChat(raw string) bool {
 		return false
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if _, err := a.store.Conversation(id); err != nil {
 		if !errors.Is(err, transcript.ErrNotFound) || a.store.Add(id, "") != nil {
+			a.mu.Unlock()
 			return false
 		}
 	}
 	if reach != "" {
 		if a.store.SetReach(id, reach) != nil {
+			a.mu.Unlock()
 			return false
 		}
 		if a.node != nil {
@@ -178,6 +199,11 @@ func (a *App) OpenChat(raw string) bool {
 		}
 	}
 	a.open = id
+	finder := a.finder
+	a.mu.Unlock()
+	if finder != nil {
+		finder.Watch(id)
+	}
 	return true
 }
 
@@ -199,9 +225,9 @@ func splitTarget(raw string) (id, reach string, err error) {
 	return id, reach, err
 }
 
-// Send seals text to peer and hands it directly to that glyph ID.
+// Send seals text to peer and hands it to that glyph ID.
 // The letter is kept only after that peer accepts it. An unknown peer, a
-// peer who is not on this network, or a removed peer leaves the text unsent.
+// peer that cannot be reached, or a removed peer leaves the text unsent.
 func (a *App) Send(peer, text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -239,8 +265,9 @@ func (a *App) Send(peer, text string) bool {
 		return false
 	}
 	node := a.node
+	finder := a.finder
 	a.mu.Unlock()
-	if err := node.Deliver(id, blob); err != nil {
+	if !deliver(node, finder, id, blob) {
 		return false
 	}
 	a.mu.Lock()
@@ -256,6 +283,50 @@ func (a *App) Send(peer, text string) bool {
 	}
 	a.open = id
 	return true
+}
+
+func deliver(node *direct.Node, finder *discover.Service, id string, blob []byte) bool {
+	paths := 1
+	if finder != nil {
+		paths = 2
+	}
+	errc := make(chan error, paths)
+	go func() {
+		if node == nil {
+			errc <- errors.New("glyph: no listener")
+			return
+		}
+		errc <- node.Deliver(id, blob)
+	}()
+	if finder != nil {
+		go func() { errc <- finder.Deliver(id, blob) }()
+	}
+	for left := paths; left > 0; left-- {
+		if <-errc == nil {
+			if left > 1 {
+				go func(n int) {
+					for i := 0; i < n; i++ {
+						<-errc
+					}
+				}(left - 1)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func announced(a *App) string {
+	if a != nil && a.finder != nil {
+		if ep := a.finder.Endpoint(); ep != "" {
+			return ep
+		}
+		return "announcing"
+	}
+	if a == nil {
+		return ""
+	}
+	return publicReach(a.publicIP, a.node)
 }
 
 // SetName stores the local label shown as "you are".
@@ -329,6 +400,9 @@ func (a *App) RemoveFriend(peer string) bool {
 	if a.node != nil {
 		a.node.Drop(id)
 	}
+	if a.finder != nil {
+		a.finder.Drop(id)
+	}
 	return true
 }
 
@@ -372,6 +446,9 @@ func (a *App) take(peer string, blob []byte) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if _, blocked := a.blocked[peer]; blocked {
+		return false
+	}
+	if _, err := a.store.Conversation(peer); err != nil {
 		return false
 	}
 	err = a.store.Ingest(msg)
@@ -419,12 +496,9 @@ func (a *App) SetRecord(peer, keep string) bool {
 	return a.store.SetRecord(id, on, sec) == nil
 }
 
-// Refresh reads this machine's LAN address again.
+// Refresh looks up this machine's public network again.
 func (a *App) Refresh() {
-	label := networkLabel()
-	a.mu.Lock()
-	a.network = label
-	a.mu.Unlock()
+	go a.applyNetwork()
 }
 
 // Select shows that conversation in the window.
@@ -500,7 +574,7 @@ func (a *App) snapshotLocked() stateJSON {
 		Network:     a.network,
 		Mailbox:     mail,
 		Direct:      a.node != nil,
-		Listen:      listenAddr(a.node),
+		Listen:      announced(a),
 		MailboxAddr: box,
 		MailboxKey:  boxKey,
 		Open:        open,

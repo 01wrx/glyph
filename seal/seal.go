@@ -1,5 +1,6 @@
 // Package seal signs a glyph letter and encrypts it to the recipient's glyph
-// ID. The mailbox and the network see ciphertext only.
+// ID. The clear header is an ephemeral key and a nonce. The sender, the
+// recipient, and the letter body stay inside the ciphertext.
 package seal
 
 import (
@@ -22,9 +23,9 @@ import (
 )
 
 const (
-	version = 1
-	// version || sender || recipient || ephemeral || nonce
-	headerLen = 1 + 32 + 32 + 32 + 12
+	version = 2
+	// version || ephemeral || nonce
+	headerLen = 1 + 32 + 12
 	maxText   = 48 * 1024
 )
 
@@ -110,27 +111,17 @@ func Open(recipient ed25519.PrivateKey, blob []byte) (Message, error) {
 	if err != nil {
 		return Message{}, ErrInvalid
 	}
-	if len(blob) < headerLen+ed25519.SignatureSize+chacha20poly1305.Overhead+1 {
+	if len(blob) < headerLen+32+ed25519.SignatureSize+chacha20poly1305.Overhead+1 {
 		return Message{}, ErrTruncated
 	}
 	if blob[0] != version {
 		return Message{}, ErrInvalid
 	}
-	sender := make([]byte, 32)
-	recip := make([]byte, 32)
 	eph := make([]byte, 32)
 	nonce := make([]byte, 12)
-	copy(sender, blob[1:33])
-	copy(recip, blob[33:65])
-	copy(eph, blob[65:97])
-	copy(nonce, blob[97:109])
-	ct := append([]byte(nil), blob[109:]...)
-	if !bytes.Equal(recip, ourPub) {
-		return Message{}, ErrRecipient
-	}
-	if _, err := identity.ParsePublic(sender); err != nil {
-		return Message{}, ErrInvalid
-	}
+	copy(eph, blob[1:33])
+	copy(nonce, blob[33:45])
+	ct := append([]byte(nil), blob[45:]...)
 	xPriv, err := edPrivToX(recipient)
 	if err != nil {
 		return Message{}, ErrInvalid
@@ -144,7 +135,7 @@ func Open(recipient ed25519.PrivateKey, blob []byte) (Message, error) {
 		return Message{}, ErrTruncated
 	}
 	defer clear(shared)
-	key, err := deriveKey(shared, eph, sender, recip)
+	key, err := deriveKey(shared, eph, ourPub)
 	if err != nil {
 		return Message{}, ErrInvalid
 	}
@@ -153,16 +144,20 @@ func Open(recipient ed25519.PrivateKey, blob []byte) (Message, error) {
 	if err != nil {
 		return Message{}, ErrInvalid
 	}
-	plain, err := aead.Open(nil, nonce, ct, aad(sender, recip))
+	plain, err := aead.Open(nil, nonce, ct, aad(ourPub))
 	if err != nil {
 		return Message{}, ErrTruncated
 	}
-	if len(plain) < ed25519.SignatureSize+1 {
+	if len(plain) < 32+ed25519.SignatureSize+1 {
 		return Message{}, ErrTruncated
 	}
-	sig := plain[:ed25519.SignatureSize]
-	payload := plain[ed25519.SignatureSize:]
-	if !ed25519.Verify(sender, sigInput(sender, recip, payload), sig) {
+	sender, err := identity.ParsePublic(plain[:32])
+	if err != nil {
+		return Message{}, ErrInvalid
+	}
+	sig := plain[32 : 32+ed25519.SignatureSize]
+	payload := plain[32+ed25519.SignatureSize:]
+	if !ed25519.Verify(sender, sigInput(sender, ourPub, payload), sig) {
 		return Message{}, ErrBadSignature
 	}
 	msg, err := parsePayload(payload)
@@ -173,7 +168,7 @@ func Open(recipient ed25519.PrivateKey, blob []byte) (Message, error) {
 	if err != nil {
 		return Message{}, ErrInvalid
 	}
-	msg.Recipient, err = identity.Format(recip)
+	msg.Recipient, err = identity.Format(ourPub)
 	if err != nil {
 		return Message{}, ErrInvalid
 	}
@@ -182,7 +177,7 @@ func Open(recipient ed25519.PrivateKey, blob []byte) (Message, error) {
 		if err != nil {
 			return Message{}, ErrInvalid
 		}
-		if err := verifySuccessor(ed25519.PublicKey(sender), ed25519.PublicKey(recip), next, msg.NextSig); err != nil {
+		if err := verifySuccessor(sender, ourPub, next, msg.NextSig); err != nil {
 			return Message{}, err
 		}
 	}
@@ -270,7 +265,7 @@ func encryptSigned(senderPub, recipientPub ed25519.PublicKey, sig, payload []byt
 	}
 	defer clear(shared)
 	ephPub := eph.PublicKey().Bytes()
-	key, err := deriveKey(shared, ephPub, senderPub, recipientPub)
+	key, err := deriveKey(shared, ephPub, recipientPub)
 	if err != nil {
 		return nil, err
 	}
@@ -283,14 +278,13 @@ func encryptSigned(senderPub, recipientPub ed25519.PublicKey, sig, payload []byt
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	plain := make([]byte, 0, len(sig)+len(payload))
+	plain := make([]byte, 0, 32+len(sig)+len(payload))
+	plain = append(plain, senderPub...)
 	plain = append(plain, sig...)
 	plain = append(plain, payload...)
-	ct := aead.Seal(nil, nonce, plain, aad(senderPub, recipientPub))
+	ct := aead.Seal(nil, nonce, plain, aad(recipientPub))
 	out := make([]byte, 0, headerLen+len(ct))
 	out = append(out, version)
-	out = append(out, senderPub...)
-	out = append(out, recipientPub...)
 	out = append(out, ephPub...)
 	out = append(out, nonce...)
 	out = append(out, ct...)
@@ -299,7 +293,7 @@ func encryptSigned(senderPub, recipientPub ed25519.PublicKey, sig, payload []byt
 
 func sigInput(sender, recipient, payload []byte) []byte {
 	var b bytes.Buffer
-	b.WriteString("glyph-seal-v1")
+	b.WriteString("glyph-seal-v2")
 	b.WriteByte(0)
 	b.Write(sender)
 	b.Write(recipient)
@@ -310,19 +304,17 @@ func sigInput(sender, recipient, payload []byte) []byte {
 	return b.Bytes()
 }
 
-func aad(sender, recipient []byte) []byte {
+func aad(recipient []byte) []byte {
 	var b bytes.Buffer
-	b.WriteString("glyph-seal-aad-v1")
+	b.WriteString("glyph-seal-aad-v2")
 	b.WriteByte(0)
-	b.Write(sender)
 	b.Write(recipient)
 	return b.Bytes()
 }
 
-func deriveKey(shared, ephPub, sender, recipient []byte) ([]byte, error) {
-	info := make([]byte, 0, 13+64)
-	info = append(info, "glyph-seal-v1"...)
-	info = append(info, sender...)
+func deriveKey(shared, ephPub, recipient []byte) ([]byte, error) {
+	info := make([]byte, 0, 13+32)
+	info = append(info, "glyph-seal-v2"...)
 	info = append(info, recipient...)
 	r := hkdf.New(sha256.New, shared, ephPub, info)
 	key := make([]byte, chacha20poly1305.KeySize)
